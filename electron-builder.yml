@@ -3,6 +3,8 @@ productName: Birdflop Server Manager
 afterPack: build/afterPack.js
 publish:
   provider: github
+  owner: birdflop
+  repo: server-manager
 directories:
   output: dist
   buildResources: build
