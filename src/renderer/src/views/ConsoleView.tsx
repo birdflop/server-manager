@@ -63,6 +63,21 @@ export function ConsoleView({ instanceId }: { instanceId: string }): ReactElemen
     termRef.current = term
     searchRef.current = search
 
+    // xterm owns its own selection model, so the browser's native copy never
+    // sees it. Wire Ctrl/Cmd+C (and Ctrl+Shift+C) to copy the selection.
+    term.attachCustomKeyEventHandler((e) => {
+      if (
+        e.type === 'keydown' &&
+        (e.ctrlKey || e.metaKey) &&
+        e.key.toLowerCase() === 'c' &&
+        term.hasSelection()
+      ) {
+        void window.api.copyText(term.getSelection())
+        return false
+      }
+      return true
+    })
+
     void window.api.serverBuffer(instanceId).then((b) => b && term.write(b))
     const unsub = window.api.onServerOutput((e) => {
       if (e.id === instanceId) term.write(e.chunk)

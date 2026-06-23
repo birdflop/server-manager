@@ -48,6 +48,9 @@ import {
 } from './servers/properties'
 import { isProxy } from '@shared/software'
 import * as servers from './servers/registry'
+import { startTunnel, stopTunnel, tunnelInfo } from './tunnels/registry'
+import { listProviderStatuses } from './tunnels/index'
+import type { TunnelProviderId } from '@shared/types'
 import {
   listContent,
   addContentFiles,
@@ -355,6 +358,19 @@ export function registerIpc(): void {
     writeFileSync(result.filePath, text, 'utf-8')
     return result.filePath
   })
+
+  // ---- Tunnels (share a server publicly) ----
+  ipcMain.handle('tunnel:providers', () => listProviderStatuses())
+  ipcMain.handle('tunnel:get', (_e, id: string) => tunnelInfo(id))
+  ipcMain.handle('tunnel:start', (_e, id: string, provider: TunnelProviderId) => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    if (!inst) throw new Error('Server not found')
+    // Remember the chosen provider for this instance.
+    updateInstance(root, id, { tunnel: { provider, autoStart: inst.tunnel?.autoStart ?? false } })
+    return startTunnel(id, provider, inst.port)
+  })
+  ipcMain.handle('tunnel:stop', (_e, id: string) => stopTunnel(id))
 
   // ---- App + updater ----
   ipcMain.handle('app:getVersion', () => app.getVersion())

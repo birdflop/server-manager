@@ -12,7 +12,8 @@ import {
   MemoryStick,
   Activity,
   Network,
-  FolderTree
+  FolderTree,
+  Share2
 } from 'lucide-react'
 import type { Instance, ServerStatus } from '@shared/types'
 import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf, isProxy } from '@shared/software'
@@ -26,8 +27,17 @@ import { BackupsView } from './BackupsView'
 import { PerformanceView } from './PerformanceView'
 import { ProxyBackendsView } from './ProxyBackendsView'
 import { FilesView } from './FilesView'
+import { ShareView } from './ShareView'
 
-type SubId = 'console' | 'content' | 'backends' | 'files' | 'performance' | 'backups' | 'settings'
+type SubId =
+  | 'console'
+  | 'content'
+  | 'backends'
+  | 'files'
+  | 'performance'
+  | 'backups'
+  | 'share'
+  | 'settings'
 
 const STATUS_LABEL: Record<ServerStatus, string> = {
   stopped: 'Stopped',
@@ -73,6 +83,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
     { id: 'files', label: 'Files', icon: FolderTree },
     { id: 'performance', label: 'Performance', icon: Activity },
     { id: 'backups', label: 'Backups', icon: Archive },
+    { id: 'share', label: 'Share', icon: Share2 },
     { id: 'settings', label: 'Settings', icon: Settings }
   ]
 
@@ -163,6 +174,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
         {sub === 'files' && <FilesView instanceId={instanceId} />}
         {sub === 'performance' && <PerformanceView instance={instance} />}
         {sub === 'backups' && <BackupsView instanceId={instanceId} status={status} />}
+        {sub === 'share' && <ShareView instance={instance} status={status} />}
         {sub === 'settings' && (
           <SettingsView
             instance={instance}

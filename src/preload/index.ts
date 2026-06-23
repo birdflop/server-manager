@@ -7,6 +7,7 @@ import type {
   ServerOutputEvent,
   ServerStatsEvent,
   ServerStatusEvent,
+  TunnelStatusEvent,
   UpdateStatus
 } from '@shared/types'
 
@@ -111,6 +112,16 @@ const api: BirdflopApi = {
     return () => ipcRenderer.removeListener('server:diagnosis', listener)
   },
   copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
+
+  listTunnelProviders: () => ipcRenderer.invoke('tunnel:providers'),
+  getTunnel: (id) => ipcRenderer.invoke('tunnel:get', id),
+  startTunnel: (id, provider) => ipcRenderer.invoke('tunnel:start', id, provider),
+  stopTunnel: (id) => ipcRenderer.invoke('tunnel:stop', id),
+  onTunnelStatus: (cb) => {
+    const listener = (_e: unknown, ev: TunnelStatusEvent): void => cb(ev)
+    ipcRenderer.on('tunnel:status', listener)
+    return () => ipcRenderer.removeListener('tunnel:status', listener)
+  },
 
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   getUpdateStatus: () => ipcRenderer.invoke('updater:status'),

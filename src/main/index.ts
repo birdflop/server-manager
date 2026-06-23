@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { registerIpc } from './ipc'
 import { runSelfTest } from './selftest'
 import { stopAll } from './servers/registry'
+import { stopAllTunnels } from './tunnels/registry'
 import { initUpdater, checkForUpdates } from './updater'
 import { getConfig } from './config'
 import { birdflopLogoSvg } from '@shared/logo'
@@ -161,7 +162,10 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => stopAll())
+app.on('before-quit', () => {
+  stopAll()
+  stopAllTunnels()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

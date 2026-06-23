@@ -11,7 +11,8 @@ const DEFAULT_CONFIG: AppConfig = {
   autoUpdate: true,
   notifications: true,
   autoRestartOnCrash: false,
-  minimizeToTray: false
+  minimizeToTray: false,
+  ngrokAuthToken: null
 }
 
 function configPath(): string {

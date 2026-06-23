@@ -60,6 +60,10 @@ Edit runtime settings (port, memory slider, Java install, extra JVM args), snaps
 
 Point a server at one or more files or folders (e.g. its `plugins`/`mods` folder, or `server.properties`) and have it automatically restart — or run a console command like `reload confirm` — whenever those files change. Ideal for the plugin/mod development loop: rebuild your jar, drop it in, and the server reloads itself. Changes are debounced and wait for writes to finish, so a half-written jar won't trigger a restart. Configured per server in **Settings**; only acts while the server is running.
 
+### Share a server (tunneling)
+
+Expose a local test server to friends without port-forwarding. The **Share** tab opens a tunnel through a relay and gives you a public address to hand out, with a per-server Start/Stop control and live status. **bore** (via the free [bore.pub](https://bore.pub) relay) is the default — no account, no card, works on every platform. **ngrok** is also available if you have a token (note: ngrok now requires a card on file for TCP endpoints).
+
 ### Light & dark themes
 
 Styled to the Birdflop brand, with a one-click theme toggle.

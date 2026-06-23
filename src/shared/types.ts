@@ -58,6 +58,8 @@ export interface Instance {
   backends?: ProxyBackend[]
   /** Auto-restart-on-file-change config (undefined = disabled). */
   watch?: WatchConfig
+  /** Tunnel/share preferences (undefined = never configured). */
+  tunnel?: TunnelConfig
 }
 
 /** What the file watcher does when a watched path changes. */
@@ -224,6 +226,46 @@ export interface ServerDiagnosisEvent {
   hint: string
 }
 
+/** Services that can expose a local server to the public internet. */
+export type TunnelProviderId = 'bore' | 'ngrok'
+
+/** Lifecycle state of a server's tunnel. */
+export type TunnelState = 'offline' | 'starting' | 'online' | 'error'
+
+/** Live tunnel info for one instance. */
+export interface TunnelInfo {
+  provider: TunnelProviderId | null
+  state: TunnelState
+  /** Public address players connect to (e.g. "6.tcp.ngrok.io:18056"), when online. */
+  publicAddress?: string
+  /** Human-readable status / progress / error message. */
+  message?: string
+}
+
+/** A tunnel status change broadcast for an instance (id = instance id). */
+export interface TunnelStatusEvent extends TunnelInfo {
+  id: string
+}
+
+/** Availability of a tunnel provider, for the provider picker. */
+export interface TunnelProviderStatus {
+  id: TunnelProviderId
+  label: string
+  /** Whether a tunnel can be started right now. */
+  ready: boolean
+  /** What's missing when not ready. */
+  needs?: 'auth' | 'unavailable'
+  /** Explanation shown in the UI (e.g. "Enter an ngrok auth token"). */
+  message?: string
+}
+
+/** Per-instance tunnel preferences. */
+export interface TunnelConfig {
+  provider: TunnelProviderId
+  /** Start the tunnel automatically when the server becomes ready (wired in a later phase). */
+  autoStart: boolean
+}
+
 /** A saved backup archive for an instance. */
 export interface BackupInfo {
   name: string
@@ -310,6 +352,8 @@ export interface AppConfig {
   autoRestartOnCrash: boolean
   /** Hide to the system tray instead of quitting when the window is closed. */
   minimizeToTray: boolean
+  /** ngrok auth token used by the tunnel/share feature (null = not set). */
+  ngrokAuthToken: string | null
 }
 
 /**
@@ -372,7 +416,7 @@ export interface BirdflopApi {
   /** Apply editable settings (name, port, ram, java, jvm args). */
   updateInstance(
     id: string,
-    patch: Partial<Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs' | 'watch'>>
+    patch: Partial<Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs' | 'watch' | 'tunnel'>>
   ): Promise<{ instance: Instance; index: ManagerIndex } | null>
   /** Delete a server (folder + index entry). */
   deleteInstance(id: string): Promise<ManagerIndex>
@@ -451,6 +495,18 @@ export interface BirdflopApi {
   onServerDiagnosis(cb: (e: ServerDiagnosisEvent) => void): () => void
   /** Copy text to the system clipboard. */
   copyText(text: string): Promise<void>
+
+  // Tunnels (share a server publicly)
+  /** Availability of each tunnel provider (binary/token presence). */
+  listTunnelProviders(): Promise<TunnelProviderStatus[]>
+  /** Current tunnel state for an instance. */
+  getTunnel(id: string): Promise<TunnelInfo>
+  /** Start a tunnel for an instance using the given provider. */
+  startTunnel(id: string, provider: TunnelProviderId): Promise<void>
+  /** Stop an instance's tunnel. */
+  stopTunnel(id: string): Promise<void>
+  /** Subscribe to tunnel status changes. Returns an unsubscribe fn. */
+  onTunnelStatus(cb: (e: TunnelStatusEvent) => void): () => void
 
   // App + updater
   /** The running app's version (from package.json). */
