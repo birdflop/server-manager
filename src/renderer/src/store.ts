@@ -228,7 +228,7 @@ export const useApp = create<AppState>((set, get) => ({
   installUpdate: async () => {
     await window.api.installUpdate()
   },
-  openUpdateModal: () => set({ updateModalOpen: true }),
+  openUpdateModal: () => set({ updateModalOpen: true, settingsOpen: false }),
   closeUpdateModal: () => set({ updateModalOpen: false })
 }))
 
