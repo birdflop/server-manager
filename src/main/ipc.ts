@@ -57,6 +57,13 @@ import {
   checkContentUpdates,
   updateContent
 } from './servers/content'
+import {
+  listFiles,
+  readFile as readInstanceFile,
+  writeFile as writeInstanceFile,
+  detectEditors,
+  openInEditor
+} from './servers/files'
 import type { ContentSource } from '@shared/types'
 
 /** Resolve the current data root or throw if it hasn't been chosen yet. */
@@ -300,6 +307,21 @@ export function registerIpc(): void {
   ipcMain.handle('content:update', (_e, id: string, name: string) =>
     updateContent(requireRoot(), id, name)
   )
+  // ---- Files (built-in viewer/editor) ----
+  ipcMain.handle('files:list', (_e, id: string, relPath: string) =>
+    listFiles(requireRoot(), id, relPath)
+  )
+  ipcMain.handle('files:read', (_e, id: string, relPath: string) =>
+    readInstanceFile(requireRoot(), id, relPath)
+  )
+  ipcMain.handle('files:write', (_e, id: string, relPath: string, content: string) =>
+    writeInstanceFile(requireRoot(), id, relPath, content)
+  )
+  ipcMain.handle('files:detectEditors', () => detectEditors())
+  ipcMain.handle('files:openInEditor', (_e, id: string, editorId: string, relPath?: string) =>
+    openInEditor(requireRoot(), id, editorId, relPath)
+  )
+
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     shell.openExternal(url)
   })

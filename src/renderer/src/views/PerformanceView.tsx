@@ -8,9 +8,13 @@ function ramLabel(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB` : `${mb} MB`
 }
 
+// Stable reference for the "no samples yet" case so the Zustand selector below
+// doesn't return a fresh array every render (which would loop useSyncExternalStore).
+const NO_HISTORY: { cpu: number; memMB: number }[] = []
+
 export function PerformanceView({ instance }: { instance: Instance }): ReactElement {
   const status = useApp((s) => s.status[instance.id] ?? 'stopped')
-  const history = useApp((s) => s.statsHistory[instance.id] ?? [])
+  const history = useApp((s) => s.statsHistory[instance.id] ?? NO_HISTORY)
   const live = useApp((s) => s.stats[instance.id])
 
   const cpuData = history.map((h) => h.cpu)

@@ -11,7 +11,8 @@ import {
   Cpu,
   MemoryStick,
   Activity,
-  Network
+  Network,
+  FolderTree
 } from 'lucide-react'
 import type { Instance, ServerStatus } from '@shared/types'
 import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf, isProxy } from '@shared/software'
@@ -24,8 +25,9 @@ import { SettingsView } from './SettingsView'
 import { BackupsView } from './BackupsView'
 import { PerformanceView } from './PerformanceView'
 import { ProxyBackendsView } from './ProxyBackendsView'
+import { FilesView } from './FilesView'
 
-type SubId = 'console' | 'content' | 'backends' | 'performance' | 'backups' | 'settings'
+type SubId = 'console' | 'content' | 'backends' | 'files' | 'performance' | 'backups' | 'settings'
 
 const STATUS_LABEL: Record<ServerStatus, string> = {
   stopped: 'Stopped',
@@ -68,6 +70,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
     { id: 'console', label: 'Console', icon: Terminal },
     ...(ck !== 'none' ? [{ id: 'content' as SubId, label: contentLabel, icon: Package }] : []),
     ...(proxy ? [{ id: 'backends' as SubId, label: 'Backends', icon: Network }] : []),
+    { id: 'files', label: 'Files', icon: FolderTree },
     { id: 'performance', label: 'Performance', icon: Activity },
     { id: 'backups', label: 'Backups', icon: Archive },
     { id: 'settings', label: 'Settings', icon: Settings }
@@ -157,6 +160,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
           />
         )}
         {sub === 'backends' && <ProxyBackendsView instance={instance} status={status} />}
+        {sub === 'files' && <FilesView instanceId={instanceId} />}
         {sub === 'performance' && <PerformanceView instance={instance} />}
         {sub === 'backups' && <BackupsView instanceId={instanceId} status={status} />}
         {sub === 'settings' && (

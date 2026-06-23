@@ -121,6 +121,31 @@ export interface ContentSearchHit {
   pageUrl?: string
 }
 
+/** A single entry (file or folder) inside an instance's directory tree. */
+export interface FileEntry {
+  /** Base name of the entry. */
+  name: string
+  /** POSIX-style path relative to the instance root (e.g. "config/paper.yml"). */
+  path: string
+  isDir: boolean
+  /** Size in bytes (0 for directories). */
+  size: number
+  mtimeMs: number
+}
+
+/** Result of reading a file for the built-in editor. */
+export type FileReadResult =
+  | { ok: true; content: string; size: number }
+  | { ok: false; reason: 'binary' | 'too-large' | 'missing' | 'error'; size: number }
+
+/** A text editor detected on the machine that can open a server folder. */
+export interface DetectedEditor {
+  /** Stable identifier used when launching (e.g. "vscode", "cursor"). */
+  id: string
+  /** Display name (e.g. "VS Code"). */
+  name: string
+}
+
 /** State of the in-app auto-updater. */
 export interface UpdateStatus {
   state:
@@ -370,6 +395,18 @@ export interface BirdflopApi {
   pickFiles(): Promise<string[]>
   /** Resolve the absolute path of a dropped/selected File (Electron webUtils). */
   pathForFile(file: File): string
+
+  // Files (built-in viewer/editor)
+  /** List the entries of a directory within an instance (relPath "" = instance root). */
+  listFiles(id: string, relPath: string): Promise<FileEntry[]>
+  /** Read a text file for the editor; reports binary/too-large/missing instead of throwing. */
+  readFile(id: string, relPath: string): Promise<FileReadResult>
+  /** Write text content to a file within an instance (creates parent dirs if needed). */
+  writeFile(id: string, relPath: string, content: string): Promise<void>
+  /** Text editors detected on this machine (VS Code, Cursor, etc.). */
+  detectEditors(): Promise<DetectedEditor[]>
+  /** Open an instance's folder (or a file within it) in a detected external editor. */
+  openInEditor(id: string, editorId: string, relPath?: string): Promise<void>
 
   /** Clear a server's buffered console scrollback. */
   clearServerBuffer(id: string): Promise<void>

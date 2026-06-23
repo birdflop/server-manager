@@ -96,6 +96,13 @@ const api: BirdflopApi = {
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
   pathForFile: (file) => webUtils.getPathForFile(file),
+  listFiles: (id, relPath) => ipcRenderer.invoke('files:list', id, relPath),
+  readFile: (id, relPath) => ipcRenderer.invoke('files:read', id, relPath),
+  writeFile: (id, relPath, content) => ipcRenderer.invoke('files:write', id, relPath, content),
+  detectEditors: () => ipcRenderer.invoke('files:detectEditors'),
+  openInEditor: (id, editorId, relPath) =>
+    ipcRenderer.invoke('files:openInEditor', id, editorId, relPath),
+
   clearServerBuffer: (id) => ipcRenderer.invoke('server:clearBuffer', id),
   saveServerLog: (id) => ipcRenderer.invoke('server:saveLog', id),
   onServerDiagnosis: (cb) => {
