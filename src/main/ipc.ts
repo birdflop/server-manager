@@ -1,6 +1,6 @@
-import { app, ipcMain, dialog, shell, BrowserWindow } from 'electron'
+import { app, ipcMain, dialog, shell, clipboard, BrowserWindow } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import type {
   AppConfig,
   CreateInstancePayload,
@@ -8,6 +8,7 @@ import type {
   Instance,
   InstallProgress,
   ManagerIndex,
+  ProxyBackend,
   ServerType,
   ThemeName
 } from '@shared/types'
@@ -38,7 +39,13 @@ import { ensureJava } from './java/adoptium'
 import { requiredJavaMajor } from './java/requirements'
 import { getUpdateStatus, checkForUpdates, downloadUpdate, quitAndInstall } from './updater'
 import { installServer } from './servers/install'
-import { writeEula, setServerProperties, setProxyPort } from './servers/properties'
+import {
+  writeEula,
+  setServerProperties,
+  setProxyPort,
+  writeProxyBackends,
+  proxyServerName
+} from './servers/properties'
 import { isProxy } from '@shared/software'
 import * as servers from './servers/registry'
 import {
@@ -46,7 +53,9 @@ import {
   addContentFiles,
   deleteContentFile,
   contentSearch,
-  contentInstall
+  contentInstall,
+  checkContentUpdates,
+  updateContent
 } from './servers/content'
 import type { ContentSource } from '@shared/types'
 
@@ -209,6 +218,35 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('instances:clone', (_e, id: string) => cloneInstance(requireRoot(), id))
+
+  // ---- Proxy backends ----
+  ipcMain.handle('proxy:getBackends', (_e, id: string): ProxyBackend[] => {
+    return readInstance(requireRoot(), id)?.backends ?? []
+  })
+  ipcMain.handle('proxy:setBackends', (_e, id: string, backends: ProxyBackend[]): ProxyBackend[] => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    if (!inst) throw new Error('Server not found')
+    if (!isProxy(inst.serverType)) throw new Error('Only proxies have backend servers')
+    // Sanitize names to valid config identifiers and drop duplicates/empties.
+    const seen = new Set<string>()
+    const clean: ProxyBackend[] = []
+    for (const b of backends) {
+      const address = (b.address ?? '').trim()
+      if (!address) continue
+      let name = proxyServerName(b.name ?? '')
+      while (seen.has(name)) name = `${name}-2`
+      seen.add(name)
+      clean.push({ name, address, instanceId: b.instanceId })
+    }
+    const dir = instanceDir(root, id)
+    // Ensure the proxy config exists, then rewrite just its server section.
+    setProxyPort(dir, inst.serverType, inst.port)
+    writeProxyBackends(dir, inst.serverType, clean)
+    writeInstance(root, { ...inst, backends: clean })
+    return clean
+  })
+
   ipcMain.handle('instances:import', (_e, payload: ImportInstancePayload) =>
     importInstance(requireRoot(), payload)
   )
@@ -258,10 +296,39 @@ export function registerIpc(): void {
   ipcMain.handle('content:install', (_e, id: string, source: ContentSource, projectId: string) =>
     contentInstall(requireRoot(), id, source, projectId)
   )
+  ipcMain.handle('content:checkUpdates', (_e, id: string) => checkContentUpdates(requireRoot(), id))
+  ipcMain.handle('content:update', (_e, id: string, name: string) =>
+    updateContent(requireRoot(), id, name)
+  )
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     shell.openExternal(url)
   })
+  ipcMain.handle('clipboard:write', (_e, text: string) => {
+    clipboard.writeText(text)
+  })
   ipcMain.handle('server:clearBuffer', (_e, id: string) => servers.clearBuffer(id))
+
+  ipcMain.handle('server:saveLog', async (_e, id: string): Promise<string | null> => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    // Strip ANSI escape codes so the saved log is plain text.
+    // eslint-disable-next-line no-control-regex
+    const text = servers.bufferOf(id).replace(/\x1b\[[0-9;]*m/g, '')
+    const safeName = (inst?.name ?? 'server').replace(/[^a-z0-9_-]+/gi, '-')
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Save console log',
+      defaultPath: `${safeName}-${stamp}.log`,
+      filters: [{ name: 'Log files', extensions: ['log', 'txt'] }]
+    }
+    const result = win
+      ? await dialog.showSaveDialog(win, opts)
+      : await dialog.showSaveDialog(opts)
+    if (result.canceled || !result.filePath) return null
+    writeFileSync(result.filePath, text, 'utf-8')
+    return result.filePath
+  })
 
   // ---- App + updater ----
   ipcMain.handle('app:getVersion', () => app.getVersion())

@@ -54,6 +54,18 @@ export interface Instance {
   jvmArgs: string[]
   eulaAccepted: boolean
   createdAt: number
+  /** For proxies only: the backend servers this proxy routes to. */
+  backends?: ProxyBackend[]
+}
+
+/** A backend server a proxy forwards players to. */
+export interface ProxyBackend {
+  /** Name used in the proxy config (sanitized to a valid identifier). */
+  name: string
+  /** host:port the proxy connects to. */
+  address: string
+  /** The managed instance this points at, if any (used for live status + auto-fill). */
+  instanceId?: string
 }
 
 /** Index file persisted at <root>/birdflop-manager.json. */
@@ -69,6 +81,25 @@ export type ServerStatus = 'stopped' | 'starting' | 'running' | 'stopping'
 export interface ContentFile {
   name: string
   size: number
+}
+
+/** Install provenance recorded per content file so we can check for updates later. */
+export interface ContentMeta {
+  source: ContentSource
+  projectId: string
+  /** Source-specific id of the installed version. */
+  versionId: string
+  /** Human-readable version (e.g. "1.2.3"), when available. */
+  versionNumber?: string
+}
+
+/** A content file with a newer version available from its source. */
+export interface ContentUpdate {
+  name: string
+  source: ContentSource
+  projectId: string
+  currentVersion?: string
+  latestVersion?: string
 }
 
 /** Where plugins/mods can be searched + installed from. */
@@ -123,6 +154,14 @@ export interface ServerStatsEvent {
   id: string
   cpu: number
   memMB: number
+}
+
+/** A best-effort explanation emitted when a server exits abnormally. */
+export interface ServerDiagnosisEvent {
+  id: string
+  code: number | null
+  title: string
+  hint: string
 }
 
 /** A saved backup archive for an instance. */
@@ -281,6 +320,10 @@ export interface BirdflopApi {
   openInstanceFolder(id: string): Promise<void>
   /** Duplicate an instance (copies files, new id + bumped port). */
   cloneInstance(id: string): Promise<{ instance: Instance; index: ManagerIndex }>
+  /** Read a proxy's configured backend servers. */
+  getProxyBackends(id: string): Promise<ProxyBackend[]>
+  /** Replace a proxy's backend servers (rewrites the proxy config). */
+  setProxyBackends(id: string, backends: ProxyBackend[]): Promise<ProxyBackend[]>
   /** Import an existing server folder as a new managed instance. */
   importInstance(
     payload: ImportInstancePayload
@@ -317,6 +360,10 @@ export interface BirdflopApi {
   searchContent(id: string, source: ContentSource, query: string): Promise<ContentSearchHit[]>
   /** Download + install a project from a content source into this server. */
   installContent(id: string, source: ContentSource, projectId: string): Promise<ContentFile[]>
+  /** Check tracked (app-installed) content for newer versions. */
+  checkContentUpdates(id: string): Promise<ContentUpdate[]>
+  /** Update one tracked content file to its latest version. */
+  updateContent(id: string, name: string): Promise<ContentFile[]>
   /** Open a URL in the user's default browser. */
   openExternal(url: string): Promise<void>
   /** Open a native file picker for jars; returns chosen absolute paths. */
@@ -326,6 +373,12 @@ export interface BirdflopApi {
 
   /** Clear a server's buffered console scrollback. */
   clearServerBuffer(id: string): Promise<void>
+  /** Save a server's console scrollback to a file (opens a save dialog). Returns the path or null. */
+  saveServerLog(id: string): Promise<string | null>
+  /** Subscribe to crash diagnoses. Returns an unsubscribe fn. */
+  onServerDiagnosis(cb: (e: ServerDiagnosisEvent) => void): () => void
+  /** Copy text to the system clipboard. */
+  copyText(text: string): Promise<void>
 
   // App + updater
   /** The running app's version (from package.json). */

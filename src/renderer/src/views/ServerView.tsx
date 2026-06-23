@@ -9,18 +9,23 @@ import {
   Loader2,
   Archive,
   Cpu,
-  MemoryStick
+  MemoryStick,
+  Activity,
+  Network
 } from 'lucide-react'
 import type { Instance, ServerStatus } from '@shared/types'
 import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf, isProxy } from '@shared/software'
 import { useApp } from '../store'
 import { StatusDot } from '../components/StatusDot'
+import { CopyAddress } from '../components/CopyAddress'
 import { ConsoleView } from './ConsoleView'
 import { ContentView } from './ContentView'
 import { SettingsView } from './SettingsView'
 import { BackupsView } from './BackupsView'
+import { PerformanceView } from './PerformanceView'
+import { ProxyBackendsView } from './ProxyBackendsView'
 
-type SubId = 'console' | 'content' | 'backups' | 'settings'
+type SubId = 'console' | 'content' | 'backends' | 'performance' | 'backups' | 'settings'
 
 const STATUS_LABEL: Record<ServerStatus, string> = {
   stopped: 'Stopped',
@@ -57,10 +62,13 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
   }
 
   const ck = contentKindOf(instance.serverType)
+  const proxy = isProxy(instance.serverType)
   const contentLabel = ck === 'plugins' ? 'Plugins' : 'Mods'
   const subviews: { id: SubId; label: string; icon: typeof Terminal }[] = [
     { id: 'console', label: 'Console', icon: Terminal },
     ...(ck !== 'none' ? [{ id: 'content' as SubId, label: contentLabel, icon: Package }] : []),
+    ...(proxy ? [{ id: 'backends' as SubId, label: 'Backends', icon: Network }] : []),
+    { id: 'performance', label: 'Performance', icon: Activity },
     { id: 'backups', label: 'Backups', icon: Archive },
     { id: 'settings', label: 'Settings', icon: Settings }
   ]
@@ -87,10 +95,13 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
                 </span>
               )}
             </div>
-            <p className="mt-0.5 text-xs text-fg-muted">
-              {SERVER_TYPE_MAP[instance.serverType].label} ·{' '}
-              {isProxy(instance.serverType) ? '' : 'MC '}
-              {instance.mcVersion} · {instance.build}
+            <p className="mt-0.5 flex items-center gap-2 text-xs text-fg-muted">
+              <span>
+                {SERVER_TYPE_MAP[instance.serverType].label} ·{' '}
+                {proxy ? '' : 'MC '}
+                {instance.mcVersion} · {instance.build}
+              </span>
+              <CopyAddress port={instance.port} />
             </p>
           </div>
 
@@ -145,6 +156,8 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
             sources={contentSourcesOf(instance.serverType)}
           />
         )}
+        {sub === 'backends' && <ProxyBackendsView instance={instance} status={status} />}
+        {sub === 'performance' && <PerformanceView instance={instance} />}
         {sub === 'backups' && <BackupsView instanceId={instanceId} status={status} />}
         {sub === 'settings' && (
           <SettingsView

@@ -40,7 +40,7 @@ export async function searchHangar(query: string): Promise<ContentSearchHit[]> {
 /** Resolve the latest PAPER download for a Hangar project ("owner/slug"). */
 export async function resolveHangarDownload(
   projectId: string
-): Promise<{ url: string; filename: string }> {
+): Promise<{ url: string; filename: string; versionId: string; versionNumber?: string }> {
   const [owner, slug] = projectId.split('/')
   const versions = await getJson<{ result: HangarVersion[] }>(
     `${API}/projects/${owner}/${slug}/versions?limit=1&offset=0&platform=PAPER`
@@ -50,17 +50,20 @@ export async function resolveHangarDownload(
   const dl = version.downloads['PAPER'] ?? Object.values(version.downloads)[0]
   if (!dl) throw new Error('No download for this Hangar version')
 
+  // Hangar versions are named (e.g. "1.2.3"); use the name as the version identifier.
   if (dl.fileInfo?.name) {
     // Internal download served by Hangar.
     return {
       url: `${API}/projects/${owner}/${slug}/versions/${encodeURIComponent(version.name)}/PAPER/download`,
-      filename: dl.fileInfo.name
+      filename: dl.fileInfo.name,
+      versionId: version.name,
+      versionNumber: version.name
     }
   }
   if (dl.externalUrl) {
     const last = dl.externalUrl.split('?')[0].split('/').pop() || ''
     const filename = last.endsWith('.jar') ? last : `${slug}-${version.name}.jar`
-    return { url: dl.externalUrl, filename }
+    return { url: dl.externalUrl, filename, versionId: version.name, versionNumber: version.name }
   }
   throw new Error('Hangar version has no downloadable file')
 }

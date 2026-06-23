@@ -24,6 +24,8 @@ interface AppState {
   status: Record<string, ServerStatus>
   /** Live CPU/RAM per running instance id. */
   stats: Record<string, { cpu: number; memMB: number }>
+  /** Rolling CPU/RAM samples per instance id (most recent last), for sparklines. */
+  statsHistory: Record<string, { cpu: number; memMB: number }[]>
 
   // lifecycle
   init: () => Promise<void>
@@ -85,6 +87,7 @@ export const useApp = create<AppState>((set, get) => ({
   activeTabId: null,
   status: {},
   stats: {},
+  statsHistory: {},
 
   init: async () => {
     const config = await window.api.getConfig()
@@ -99,11 +102,22 @@ export const useApp = create<AppState>((set, get) => ({
       set((s) => {
         const stats = { ...s.stats }
         if (e.status === 'stopped') delete stats[e.id]
-        return { status: { ...s.status, [e.id]: e.status }, stats }
+        // Start each run with a clean performance history.
+        const statsHistory =
+          e.status === 'starting' ? { ...s.statsHistory, [e.id]: [] } : s.statsHistory
+        return { status: { ...s.status, [e.id]: e.status }, stats, statsHistory }
       })
     )
     window.api.onServerStats((e) =>
-      set((s) => ({ stats: { ...s.stats, [e.id]: { cpu: e.cpu, memMB: e.memMB } } }))
+      set((s) => {
+        const prev = s.statsHistory[e.id] ?? []
+        // Keep the most recent ~120 samples (≈4 min at the 2s poll interval).
+        const next = [...prev, { cpu: e.cpu, memMB: e.memMB }].slice(-120)
+        return {
+          stats: { ...s.stats, [e.id]: { cpu: e.cpu, memMB: e.memMB } },
+          statsHistory: { ...s.statsHistory, [e.id]: next }
+        }
+      })
     )
     // Auto-update status + app version.
     window.api.onUpdateStatus((u) =>

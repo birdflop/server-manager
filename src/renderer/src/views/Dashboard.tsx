@@ -14,6 +14,20 @@ import type { Instance, InstanceMeta, Group, ServerStatus } from '@shared/types'
 import { SERVER_TYPE_MAP, isProxy } from '@shared/software'
 import { useApp } from '../store'
 import { StatusDot } from '../components/StatusDot'
+import { CopyAddress } from '../components/CopyAddress'
+
+/** Start every server in a group (Minecraft servers first, then proxies once backends are up). */
+function startAll(metas: InstanceMeta[], instances: Record<string, Instance>): void {
+  const proxies = metas.filter((m) => instances[m.id] && isProxy(instances[m.id].serverType))
+  const servers = metas.filter((m) => instances[m.id] && !isProxy(instances[m.id].serverType))
+  for (const m of servers) void window.api.startServer(m.id)
+  // Give backends a head start so proxies connect cleanly.
+  if (proxies.length) setTimeout(() => proxies.forEach((m) => void window.api.startServer(m.id)), 4000)
+}
+
+function stopAll(metas: InstanceMeta[]): void {
+  for (const m of metas) void window.api.stopServer(m.id)
+}
 
 function byOrder<T extends { order: number }>(a: T, b: T): number {
   return a.order - b.order
@@ -109,10 +123,13 @@ function ServerCard({ meta, instance }: { meta: InstanceMeta; instance?: Instanc
         </div>
       </div>
 
-      <div className="text-xs text-fg-muted">
-        {info
-          ? `${info} · ${instance && isProxy(instance.serverType) ? '' : 'MC '}${instance?.mcVersion} · :${instance?.port}`
-          : 'Loading…'}
+      <div className="flex items-center gap-2 text-xs text-fg-muted">
+        <span className="min-w-0 truncate">
+          {info
+            ? `${info} · ${instance && isProxy(instance.serverType) ? '' : 'MC '}${instance?.mcVersion}`
+            : 'Loading…'}
+        </span>
+        {instance && <CopyAddress port={instance.port} className="shrink-0" />}
       </div>
 
       <div className="flex items-center justify-between">
@@ -248,6 +265,24 @@ function GroupSection({
             <Trash2 size={13} />
           </IconBtn>
         </div>
+        {metas.length > 0 && (
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => startAll(metas, instances)}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-fg-muted transition hover:border-emerald-500/40 hover:text-emerald-400"
+              title="Start all servers in this group"
+            >
+              <Play size={12} /> Start all
+            </button>
+            <button
+              onClick={() => stopAll(metas)}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-fg-muted transition hover:border-red-500/40 hover:text-red-400"
+              title="Stop all servers in this group"
+            >
+              <Square size={11} /> Stop all
+            </button>
+          </div>
+        )}
       </div>
       {metas.length > 0 ? (
         <CardGrid metas={metas} instances={instances} />
@@ -397,11 +432,27 @@ export default function Dashboard(): ReactElement {
                 const dragged = e.dataTransfer.getData('text/plain')
                 if (dragged) void moveInstance(dragged, null)
               }}
-              className={`mb-2 rounded-md px-2 py-1 text-sm font-semibold text-fg-muted ${
+              className={`mb-2 flex items-center gap-2 rounded-md px-2 py-1 text-sm font-semibold text-fg-muted ${
                 ungroupedDragOver ? 'bg-accent/10 ring-1 ring-accent' : ''
               }`}
             >
-              Ungrouped
+              <span>Ungrouped</span>
+              <div className="ml-auto flex items-center gap-1">
+                <button
+                  onClick={() => startAll(ungrouped, instances)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-normal text-fg-muted transition hover:border-emerald-500/40 hover:text-emerald-400"
+                  title="Start all ungrouped servers"
+                >
+                  <Play size={12} /> Start all
+                </button>
+                <button
+                  onClick={() => stopAll(ungrouped)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs font-normal text-fg-muted transition hover:border-red-500/40 hover:text-red-400"
+                  title="Stop all ungrouped servers"
+                >
+                  <Square size={11} /> Stop all
+                </button>
+              </div>
             </div>
             <CardGrid metas={ungrouped} instances={instances} />
           </section>

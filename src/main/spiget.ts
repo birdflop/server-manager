@@ -41,7 +41,7 @@ export async function searchSpiget(query: string): Promise<ContentSearchHit[]> {
 
 export async function resolveSpigetDownload(
   id: string
-): Promise<{ url: string; filename: string }> {
+): Promise<{ url: string; filename: string; versionId: string; versionNumber?: string }> {
   const r = await getJson<SpigetResource>(`${API}/resources/${id}?fields=id,name,external,file`)
   if (isExternal(r)) {
     throw new Error('This SpigotMC resource is hosted off-site — open its page to download.')
@@ -52,5 +52,14 @@ export async function resolveSpigetDownload(
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 40) || `spigot-${id}`
-  return { url: `${API}/resources/${id}/download`, filename: `${slug}.jar` }
+  // The latest version id/name lets us detect updates later (best-effort).
+  const latest = await getJson<{ id: number; name?: string }>(
+    `${API}/resources/${id}/versions/latest?fields=id,name`
+  ).catch(() => null)
+  return {
+    url: `${API}/resources/${id}/download`,
+    filename: `${slug}.jar`,
+    versionId: latest ? String(latest.id) : '',
+    versionNumber: latest?.name
+  }
 }

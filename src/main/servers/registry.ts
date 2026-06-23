@@ -4,6 +4,7 @@ import pidusage from 'pidusage'
 import type { Instance, ServerStatus } from '@shared/types'
 import { readyPatternFor, stopCommandFor } from '@shared/software'
 import { buildLaunch } from './launch'
+import { diagnose } from './diagnose'
 import { getConfig } from '../config'
 
 interface Running {
@@ -138,6 +139,19 @@ export function start(instance: Instance, dir: string): void {
     appendOutput(instance.id, `\n[process exited with code ${code ?? 'unknown'}]\n`)
     const crashed = !r.userStopped && code !== 0
     setStatus(instance.id, 'stopped')
+
+    // Diagnose abnormal exits (even clean-code ones with a known fatal marker, e.g. EULA).
+    if (!r.userStopped) {
+      const dx = diagnose(r.buffer, code, instance)
+      if (dx) {
+        appendOutput(
+          instance.id,
+          `\n\x1b[33m── ${dx.title} ──\x1b[0m\n${dx.hint}\n`
+        )
+        broadcast('server:diagnosis', { id: instance.id, code, title: dx.title, hint: dx.hint })
+      }
+    }
+
     if (crashed) {
       notify(instance.name, `Server stopped unexpectedly (exit code ${code ?? 'unknown'}).`)
       if (getConfig().autoRestartOnCrash) {

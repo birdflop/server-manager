@@ -6,11 +6,21 @@ import {
   statSync,
   copyFileSync,
   rmSync,
+  renameSync,
+  readFileSync,
+  writeFileSync,
   openSync,
   readSync,
   closeSync
 } from 'node:fs'
-import type { ContentFile, ContentSearchHit, ContentSource } from '@shared/types'
+import type {
+  ContentFile,
+  ContentMeta,
+  ContentSearchHit,
+  ContentSource,
+  ContentUpdate,
+  Instance
+} from '@shared/types'
 import { MODRINTH_LOADERS, contentDirOf, contentKindOf, contentSourcesOf } from '@shared/software'
 import { readInstance, instanceDir } from '../store/instances'
 import { downloadFile } from '../util/net'
@@ -18,10 +28,44 @@ import { searchModrinth, resolveModrinthDownload } from '../modrinth'
 import { searchHangar, resolveHangarDownload } from '../hangar'
 import { searchSpiget, resolveSpigetDownload } from '../spiget'
 
+const META_FILE = '.birdflop-content.json'
+
 function contentDir(root: string, id: string): string | null {
   const inst = readInstance(root, id)
   if (!inst || contentKindOf(inst.serverType) === 'none') return null
   return join(instanceDir(root, id), contentDirOf(inst.serverType))
+}
+
+/** filename -> install provenance, persisted alongside the content files. */
+type ContentMetaMap = Record<string, ContentMeta>
+
+function readMeta(dir: string): ContentMetaMap {
+  try {
+    return JSON.parse(readFileSync(join(dir, META_FILE), 'utf-8')) as ContentMetaMap
+  } catch {
+    return {}
+  }
+}
+
+function writeMeta(dir: string, map: ContentMetaMap): void {
+  try {
+    writeFileSync(join(dir, META_FILE), JSON.stringify(map, null, 2), 'utf-8')
+  } catch {
+    /* non-fatal — update tracking is best-effort */
+  }
+}
+
+/** Resolve the latest downloadable version of a project for an instance's loader/MC. */
+function resolveDownload(
+  inst: Instance,
+  source: ContentSource,
+  projectId: string
+): Promise<{ url: string; filename: string; versionId: string; versionNumber?: string }> {
+  if (source === 'modrinth') {
+    return resolveModrinthDownload(projectId, MODRINTH_LOADERS[inst.serverType], inst.mcVersion)
+  }
+  if (source === 'hangar') return resolveHangarDownload(projectId)
+  return resolveSpigetDownload(projectId)
 }
 
 export function listContent(root: string, id: string): ContentFile[] {
@@ -51,11 +95,17 @@ export function addContentFiles(root: string, id: string, paths: string[]): Cont
 export function deleteContentFile(root: string, id: string, name: string): ContentFile[] {
   const dir = contentDir(root, id)
   if (dir) {
+    const bare = basename(name)
     try {
       // Guard against path traversal — only operate on a bare filename.
-      rmSync(join(dir, basename(name)))
+      rmSync(join(dir, bare))
     } catch {
       /* ignore */
+    }
+    const meta = readMeta(dir)
+    if (meta[bare]) {
+      delete meta[bare]
+      writeMeta(dir, meta)
     }
   }
   return listContent(root, id)
@@ -97,17 +147,11 @@ export async function contentInstall(
   const dir = contentDir(root, id)
   if (!inst || !dir) throw new Error('Server has no content folder')
 
-  let dl: { url: string; filename: string }
-  if (source === 'modrinth') {
-    dl = await resolveModrinthDownload(projectId, MODRINTH_LOADERS[inst.serverType], inst.mcVersion)
-  } else if (source === 'hangar') {
-    dl = await resolveHangarDownload(projectId)
-  } else {
-    dl = await resolveSpigetDownload(projectId)
-  }
+  const dl = await resolveDownload(inst, source, projectId)
 
   mkdirSync(dir, { recursive: true })
-  const dest = join(dir, dl.filename.endsWith('.jar') ? dl.filename : `${dl.filename}.jar`)
+  const filename = dl.filename.endsWith('.jar') ? dl.filename : `${dl.filename}.jar`
+  const dest = join(dir, filename)
   await downloadFile(dl.url, dest)
   if (!isZip(dest)) {
     try {
@@ -117,5 +161,86 @@ export async function contentInstall(
     }
     throw new Error("Couldn't fetch a jar directly (it may be hosted off-site) — use “Open page”.")
   }
+  // Record provenance so we can check for updates later.
+  const meta = readMeta(dir)
+  meta[filename] = {
+    source,
+    projectId,
+    versionId: dl.versionId,
+    versionNumber: dl.versionNumber
+  }
+  writeMeta(dir, meta)
+  return listContent(root, id)
+}
+
+/** Check every tracked content file for a newer version available from its source. */
+export async function checkContentUpdates(root: string, id: string): Promise<ContentUpdate[]> {
+  const inst = readInstance(root, id)
+  const dir = contentDir(root, id)
+  if (!inst || !dir || !existsSync(dir)) return []
+  const meta = readMeta(dir)
+  const present = new Set(listContent(root, id).map((f) => f.name))
+
+  const checks = Object.entries(meta)
+    .filter(([name, m]) => present.has(name) && m.versionId)
+    .map(async ([name, m]): Promise<ContentUpdate | null> => {
+      try {
+        const latest = await resolveDownload(inst, m.source, m.projectId)
+        if (latest.versionId && latest.versionId !== m.versionId) {
+          return {
+            name,
+            source: m.source,
+            projectId: m.projectId,
+            currentVersion: m.versionNumber,
+            latestVersion: latest.versionNumber
+          }
+        }
+      } catch {
+        /* skip files whose source can't be reached right now */
+      }
+      return null
+    })
+
+  return (await Promise.all(checks)).filter((u): u is ContentUpdate => u !== null)
+}
+
+/** Update one tracked content file to the latest version from its source. */
+export async function updateContent(root: string, id: string, name: string): Promise<ContentFile[]> {
+  const inst = readInstance(root, id)
+  const dir = contentDir(root, id)
+  if (!inst || !dir) throw new Error('Server has no content folder')
+  const bare = basename(name)
+  const meta = readMeta(dir)
+  const m = meta[bare]
+  if (!m) throw new Error('This file was not installed by the app, so it can’t be auto-updated.')
+
+  const dl = await resolveDownload(inst, m.source, m.projectId)
+  const newName = dl.filename.endsWith('.jar') ? dl.filename : `${dl.filename}.jar`
+
+  // Download to a temp file first; only swap in once we know it's a valid jar.
+  const tmp = join(dir, `.${newName}.downloading`)
+  await downloadFile(dl.url, tmp)
+  if (!isZip(tmp)) {
+    try {
+      rmSync(tmp)
+    } catch {
+      /* ignore */
+    }
+    throw new Error("Couldn't fetch the updated jar directly — use the source page.")
+  }
+  try {
+    rmSync(join(dir, bare))
+  } catch {
+    /* old file may have been removed already */
+  }
+  renameSync(tmp, join(dir, newName))
+  delete meta[bare]
+  meta[newName] = {
+    source: m.source,
+    projectId: m.projectId,
+    versionId: dl.versionId,
+    versionNumber: dl.versionNumber
+  }
+  writeMeta(dir, meta)
   return listContent(root, id)
 }

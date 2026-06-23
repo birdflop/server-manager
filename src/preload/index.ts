@@ -3,6 +3,7 @@ import type {
   BirdflopApi,
   InstallProgress,
   JavaProgress,
+  ServerDiagnosisEvent,
   ServerOutputEvent,
   ServerStatsEvent,
   ServerStatusEvent,
@@ -52,6 +53,8 @@ const api: BirdflopApi = {
   deleteInstance: (id) => ipcRenderer.invoke('instances:delete', id),
   openInstanceFolder: (id) => ipcRenderer.invoke('instances:openFolder', id),
   cloneInstance: (id) => ipcRenderer.invoke('instances:clone', id),
+  getProxyBackends: (id) => ipcRenderer.invoke('proxy:getBackends', id),
+  setProxyBackends: (id, backends) => ipcRenderer.invoke('proxy:setBackends', id, backends),
   importInstance: (payload) => ipcRenderer.invoke('instances:import', payload),
   listFolderJars: (path) => ipcRenderer.invoke('instances:listFolderJars', path),
   listBackups: (id) => ipcRenderer.invoke('backups:list', id),
@@ -88,10 +91,19 @@ const api: BirdflopApi = {
   searchContent: (id, source, query) => ipcRenderer.invoke('content:search', id, source, query),
   installContent: (id, source, projectId) =>
     ipcRenderer.invoke('content:install', id, source, projectId),
+  checkContentUpdates: (id) => ipcRenderer.invoke('content:checkUpdates', id),
+  updateContent: (id, name) => ipcRenderer.invoke('content:update', id, name),
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
   pathForFile: (file) => webUtils.getPathForFile(file),
   clearServerBuffer: (id) => ipcRenderer.invoke('server:clearBuffer', id),
+  saveServerLog: (id) => ipcRenderer.invoke('server:saveLog', id),
+  onServerDiagnosis: (cb) => {
+    const listener = (_e: unknown, ev: ServerDiagnosisEvent): void => cb(ev)
+    ipcRenderer.on('server:diagnosis', listener)
+    return () => ipcRenderer.removeListener('server:diagnosis', listener)
+  },
+  copyText: (text) => ipcRenderer.invoke('clipboard:write', text),
 
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
   getUpdateStatus: () => ipcRenderer.invoke('updater:status'),

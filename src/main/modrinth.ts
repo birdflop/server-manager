@@ -17,6 +17,7 @@ interface SearchResp {
 
 interface MrVersion {
   id: string
+  version_number?: string
   date_published: string
   files: { url: string; filename: string; primary: boolean }[]
 }
@@ -45,7 +46,7 @@ export async function resolveModrinthDownload(
   projectId: string,
   loaders: string[],
   mc: string
-): Promise<{ url: string; filename: string }> {
+): Promise<{ url: string; filename: string; versionId: string; versionNumber?: string }> {
   const lf = encodeURIComponent(JSON.stringify(loaders))
   const gv = encodeURIComponent(JSON.stringify([mc]))
 
@@ -64,5 +65,5 @@ export async function resolveModrinthDownload(
   if (!v) throw new Error('No compatible version found on Modrinth')
   const file = v.files.find((f) => f.primary) ?? v.files[0]
   if (!file) throw new Error('Version has no downloadable file')
-  return { url: file.url, filename: file.filename }
+  return { url: file.url, filename: file.filename, versionId: v.id, versionNumber: v.version_number }
 }

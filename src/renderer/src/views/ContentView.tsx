@@ -1,6 +1,17 @@
 import { useEffect, useState, type DragEvent, type ReactElement } from 'react'
-import { Upload, Trash2, Search, Download, Loader2, FileBox, ExternalLink, AlertCircle } from 'lucide-react'
-import type { ContentFile, ContentSearchHit, ContentSource } from '@shared/types'
+import {
+  Upload,
+  Trash2,
+  Search,
+  Download,
+  Loader2,
+  FileBox,
+  ExternalLink,
+  AlertCircle,
+  RefreshCw,
+  ArrowUpCircle
+} from 'lucide-react'
+import type { ContentFile, ContentSearchHit, ContentSource, ContentUpdate } from '@shared/types'
 
 const SOURCE_LABEL: Record<ContentSource, string> = {
   modrinth: 'Modrinth',
@@ -26,6 +37,9 @@ export function ContentView({
   const [tab, setTab] = useState<'installed' | 'browse'>('installed')
   const [files, setFiles] = useState<ContentFile[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [updates, setUpdates] = useState<ContentUpdate[] | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [updatingName, setUpdatingName] = useState<string | null>(null)
 
   const [source, setSource] = useState<ContentSource>(sources[0] ?? 'modrinth')
   const [query, setQuery] = useState('')
@@ -45,8 +59,35 @@ export function ContentView({
     setQuery('')
     setSource(sources[0] ?? 'modrinth')
     setError(null)
+    setUpdates(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instanceId])
+
+  async function checkUpdates(): Promise<void> {
+    setChecking(true)
+    setError(null)
+    try {
+      setUpdates(await window.api.checkContentUpdates(instanceId))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  async function update(name: string): Promise<void> {
+    setUpdatingName(name)
+    setError(null)
+    try {
+      setFiles(await window.api.updateContent(instanceId, name))
+      // Drop this file from the pending-updates list.
+      setUpdates((u) => (u ? u.filter((x) => x.name !== name) : u))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setUpdatingName(null)
+    }
+  }
 
   async function onDrop(e: DragEvent): Promise<void> {
     e.preventDefault()
@@ -117,12 +158,26 @@ export function ContentView({
         </div>
         <div className="flex-1" />
         {tab === 'installed' && (
-          <button
-            onClick={() => void pickAndAdd()}
-            className="inline-flex items-center gap-1.5 rounded-brand border border-border px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-2 hover:text-fg"
-          >
-            <Upload size={14} /> Add files
-          </button>
+          <>
+            <button
+              onClick={() => void checkUpdates()}
+              disabled={checking || files.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-brand border border-border px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+            >
+              {checking ? (
+                <Loader2 className="animate-spin" size={14} />
+              ) : (
+                <RefreshCw size={14} />
+              )}
+              Check updates
+            </button>
+            <button
+              onClick={() => void pickAndAdd()}
+              className="inline-flex items-center gap-1.5 rounded-brand border border-border px-3 py-1.5 text-sm text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+            >
+              <Upload size={14} /> Add files
+            </button>
+          </>
         )}
       </div>
 
@@ -145,23 +200,52 @@ export function ContentView({
             </div>
           ) : (
             <div className="flex flex-col gap-1">
-              {files.map((f) => (
-                <div
-                  key={f.name}
-                  className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-2"
-                >
-                  <FileBox size={16} className="shrink-0 text-fg-muted" />
-                  <span className="flex-1 truncate">{f.name}</span>
-                  <span className="text-xs text-fg-muted">{formatSize(f.size)}</span>
-                  <button
-                    onClick={() => void del(f.name)}
-                    className="rounded p-1 text-fg-muted opacity-0 transition hover:text-red-400 group-hover:opacity-100"
-                    title="Delete"
-                  >
-                    <Trash2 size={15} />
-                  </button>
+              {updates !== null && (
+                <div className="mb-1 px-3 text-xs text-fg-muted">
+                  {updates.length === 0
+                    ? 'All tracked plugins/mods are up to date.'
+                    : `${updates.length} update${updates.length === 1 ? '' : 's'} available.`}
                 </div>
-              ))}
+              )}
+              {files.map((f) => {
+                const upd = updates?.find((u) => u.name === f.name)
+                return (
+                  <div
+                    key={f.name}
+                    className="group flex items-center gap-3 rounded-md px-3 py-2 text-sm hover:bg-surface-2"
+                  >
+                    <FileBox size={16} className="shrink-0 text-fg-muted" />
+                    <span className="min-w-0 flex-1 truncate">{f.name}</span>
+                    {upd && (
+                      <button
+                        onClick={() => void update(f.name)}
+                        disabled={updatingName === f.name}
+                        title={
+                          upd.latestVersion
+                            ? `Update to ${upd.latestVersion}`
+                            : 'Update to the latest version'
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-md bg-accent-2/15 px-2 py-1 text-xs font-medium text-accent transition hover:bg-accent-2/25 disabled:opacity-60"
+                      >
+                        {updatingName === f.name ? (
+                          <Loader2 className="animate-spin" size={12} />
+                        ) : (
+                          <ArrowUpCircle size={12} />
+                        )}
+                        Update
+                      </button>
+                    )}
+                    <span className="shrink-0 text-xs text-fg-muted">{formatSize(f.size)}</span>
+                    <button
+                      onClick={() => void del(f.name)}
+                      className="rounded p-1 text-fg-muted opacity-0 transition hover:text-red-400 group-hover:opacity-100"
+                      title="Delete"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

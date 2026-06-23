@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { writeFileSync, readFileSync, existsSync } from 'node:fs'
-import type { ServerType } from '@shared/types'
+import type { ProxyBackend, ServerType } from '@shared/types'
 
 export function writeEula(dir: string, accepted: boolean): void {
   writeFileSync(join(dir, 'eula.txt'), `eula=${accepted ? 'true' : 'false'}\n`, 'utf-8')
@@ -120,4 +120,74 @@ export function setProxyPort(dir: string, type: ServerType, port: number): void 
   } else {
     writeFileSync(path, bungeeConfigYml(port), 'utf-8')
   }
+}
+
+/** Sanitize a backend name into a config-safe identifier (lowercase, alnum/_/-). */
+export function proxyServerName(name: string): string {
+  return (
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'server'
+  )
+}
+
+function velocityServersBlock(backends: ProxyBackend[]): string {
+  const entries = backends.map((b) => `${b.name} = "${b.address}"`).join('\n')
+  const tryArr = backends.map((b) => `"${b.name}"`).join(', ')
+  return `[servers]\n${entries}${entries ? '\n' : ''}try = [${tryArr}]\n`
+}
+
+function bungeeServersBlock(backends: ProxyBackend[]): string {
+  if (!backends.length) return 'servers: {}\n'
+  const body = backends
+    .map(
+      (b) =>
+        `  ${b.name}:\n    motd: '&7${b.name}'\n    address: ${b.address}\n    restricted: false`
+    )
+    .join('\n')
+  return `servers:\n${body}\n`
+}
+
+function bungeePrioritiesBlock(backends: ProxyBackend[]): string {
+  if (!backends.length) return '  priorities: []\n'
+  return `  priorities:\n${backends.map((b) => `  - ${b.name}`).join('\n')}\n`
+}
+
+/**
+ * Rewrite just the backend-server section of a proxy's config, preserving the rest.
+ * Assumes the config already exists (the caller ensures it via setProxyPort).
+ */
+export function writeProxyBackends(
+  dir: string,
+  type: ServerType,
+  backends: ProxyBackend[]
+): void {
+  if (type === 'velocity') {
+    const path = join(dir, 'velocity.toml')
+    if (!existsSync(path)) return
+    let content = readFileSync(path, 'utf-8')
+    const block = velocityServersBlock(backends).trimEnd()
+    // Replace the [servers] section up to the next top-level [section] header.
+    content = /\[servers\][\s\S]*?(?=\n\[)/.test(content)
+      ? content.replace(/\[servers\][\s\S]*?(?=\n\[)/, block)
+      : `${content.trimEnd()}\n\n${block}\n`
+    writeFileSync(path, content, 'utf-8')
+    return
+  }
+
+  // BungeeCord + Waterfall (config.yml).
+  const path = join(dir, 'config.yml')
+  if (!existsSync(path)) return
+  let content = readFileSync(path, 'utf-8')
+  // Top-level `servers:` block (key line + all following indented lines).
+  const serversRe = /^servers:.*\n(?:[ \t].*\n)*/m
+  content = serversRe.test(content)
+    ? content.replace(serversRe, bungeeServersBlock(backends))
+    : `${content.trimEnd()}\n${bungeeServersBlock(backends)}`
+  // `priorities:` list nested under the listener.
+  const prioRe = /^[ \t]*priorities:.*\n(?:[ \t]*-.*\n)*/m
+  if (prioRe.test(content)) content = content.replace(prioRe, bungeePrioritiesBlock(backends))
+  writeFileSync(path, content, 'utf-8')
 }
