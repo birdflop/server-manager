@@ -23,6 +23,25 @@ npm run dist:linux   # AppImage + deb (Linux)
 npx electron-builder --dir   # unpacked app only (fast config check)
 ```
 
+### macOS (unsigned builds)
+
+Release builds aren't signed with an Apple Developer ID or notarized, so macOS
+Gatekeeper flags them. To avoid the misleading "app is damaged" error on Apple
+Silicon, `build/afterPack.js` **ad-hoc signs** the `.app` (via `codesign --sign -`)
+during the macOS build. Users then open it once with **right-click → Open** (or
+System Settings → Privacy & Security → "Open Anyway").
+
+If a build still won't open (e.g. it lost its signature in transit), clear the
+download quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Birdflop Server Manager.app"
+```
+
+For a warning-free experience, set `CSC_LINK` / `CSC_KEY_PASSWORD` (Developer ID
+cert) plus Apple notarization secrets — electron-builder then signs + notarizes
+automatically and the ad-hoc step is skipped.
+
 
 ## Dev / test environment flags (main process)
 

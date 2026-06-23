@@ -1,6 +1,17 @@
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, cpSync, readdirSync } from 'node:fs'
+import {
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  rmSync,
+  readdirSync,
+  lstatSync,
+  statSync,
+  copyFileSync,
+  realpathSync
+} from 'node:fs'
 import type {
   Group,
   ImportInstancePayload,
@@ -195,6 +206,65 @@ export function updateInstance(
   return { instance, index }
 }
 
+/**
+ * Recursively copy a folder, resolving symlinks to their real content instead of
+ * recreating links (creating symlinks needs elevated privileges on Windows, which
+ * is what broke `fs.cpSync`). Broken links, cycles, and unreadable/locked files
+ * are skipped so importing arbitrary server folders is robust.
+ */
+function copyTree(src: string, dest: string, seen: Set<string> = new Set()): void {
+  let st
+  try {
+    st = lstatSync(src)
+  } catch {
+    return
+  }
+
+  if (st.isSymbolicLink()) {
+    let target
+    try {
+      target = statSync(src) // follow the link
+    } catch {
+      return // broken link — skip
+    }
+    if (target.isDirectory()) copyDir(src, dest, seen)
+    else if (target.isFile()) copyFileSafe(src, dest)
+    return
+  }
+  if (st.isDirectory()) {
+    copyDir(src, dest, seen)
+    return
+  }
+  if (st.isFile()) copyFileSafe(src, dest)
+}
+
+function copyDir(src: string, dest: string, seen: Set<string>): void {
+  let real: string
+  try {
+    real = realpathSync(src)
+  } catch {
+    real = src
+  }
+  if (seen.has(real)) return // guard against symlink cycles
+  seen.add(real)
+  mkdirSync(dest, { recursive: true })
+  let entries: string[]
+  try {
+    entries = readdirSync(src)
+  } catch {
+    return
+  }
+  for (const entry of entries) copyTree(join(src, entry), join(dest, entry), seen)
+}
+
+function copyFileSafe(src: string, dest: string): void {
+  try {
+    copyFileSync(src, dest)
+  } catch {
+    // skip files we can't read (e.g. locked by a running server)
+  }
+}
+
 /** Duplicate an instance: copy its folder, assign a new id, bump the port. */
 export function cloneInstance(
   root: string,
@@ -203,7 +273,7 @@ export function cloneInstance(
   const src = readInstance(root, id)
   if (!src) return null
   const newId = randomUUID()
-  cpSync(instanceDir(root, id), instanceDir(root, newId), { recursive: true })
+  copyTree(instanceDir(root, id), instanceDir(root, newId))
   const instance: Instance = {
     ...src,
     id: newId,
@@ -229,7 +299,17 @@ export function importInstance(
   const newId = randomUUID()
   const dir = instanceDir(root, newId)
   mkdirSync(dir, { recursive: true })
-  cpSync(payload.sourcePath, dir, { recursive: true })
+  try {
+    copyTree(payload.sourcePath, dir)
+  } catch (err) {
+    // Clean up the partial copy so we don't leave an orphan folder behind.
+    try {
+      rmSync(dir, { recursive: true, force: true })
+    } catch {
+      /* ignore */
+    }
+    throw err
+  }
   const instance: Instance = {
     id: newId,
     name: payload.name,

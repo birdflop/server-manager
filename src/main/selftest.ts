@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync, existsSync, symlinkSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import type { Instance, ServerType } from '@shared/types'
 import { getProvider } from './software'
 import { detectJava } from './java/detect'
@@ -14,6 +15,7 @@ import { searchModrinth, resolveModrinthDownload } from './modrinth'
 import { searchHangar, resolveHangarDownload } from './hangar'
 import { searchSpiget, resolveSpigetDownload } from './spiget'
 import { createBackup, listBackups, restoreBackup } from './servers/backups'
+import { importInstance } from './store/instances'
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
@@ -224,6 +226,49 @@ export async function runSelfTest(): Promise<void> {
       const restored = readFileSync(join(inst, 'marker.txt'), 'utf8')
       console.log(`  after restore, marker.txt = "${restored}" (${restored === 'original' ? 'OK' : 'FAIL'})`)
       console.log(`  listBackups: ${listBackups(root, id).length}`)
+    } catch (err) {
+      console.error('  FAILED:', err instanceof Error ? err.message : err)
+    }
+  }
+
+  if (process.env.BSM_TESTIMPORT) {
+    console.log('\n=== IMPORT (symlink/junction) TEST ===')
+    try {
+      const stamp = Date.now()
+      const root = join(tmpdir(), `bsm-import-root-${stamp}`)
+      const parent = join(tmpdir(), `bsm-import-src-${stamp}`)
+      const src = join(parent, 'server')
+      const target = join(parent, 'disabled-target')
+      mkdirSync(join(src, 'plugins'), { recursive: true })
+      mkdirSync(root, { recursive: true })
+      mkdirSync(target, { recursive: true })
+      writeFileSync(join(src, 'server.jar'), 'jar')
+      writeFileSync(join(target, 'old-plugin.jar'), 'old')
+      // Reproduce the failing case: a link at plugins/disabled (junction on Windows,
+      // needs no privilege; symlink elsewhere).
+      const link = join(src, 'plugins', 'disabled')
+      if (process.platform === 'win32') spawnSync('cmd', ['/c', 'mklink', '/J', link, target])
+      else symlinkSync(target, link)
+
+      const result = importInstance(root, {
+        sourcePath: src,
+        name: 'Imported',
+        serverType: 'paper',
+        mcVersion: '1.21.4',
+        launchKind: 'jar',
+        launchJar: 'server.jar',
+        port: 25565,
+        ramMB: 2048,
+        javaPath: 'java',
+        jvmArgs: [],
+        groupId: null
+      })
+      const dest = join(root, 'instances', result.instance.id)
+      console.log(`  server.jar copied: ${existsSync(join(dest, 'server.jar'))}`)
+      console.log(
+        `  plugins/disabled resolved + copied: ${existsSync(join(dest, 'plugins', 'disabled', 'old-plugin.jar'))}`
+      )
+      console.log('  no privilege error thrown — OK')
     } catch (err) {
       console.error('  FAILED:', err instanceof Error ? err.message : err)
     }

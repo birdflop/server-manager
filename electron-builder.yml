@@ -1,5 +1,6 @@
 appId: org.birdflop.servermanager
 productName: Birdflop Server Manager
+afterPack: build/afterPack.js
 publish:
   provider: github
 directories:
