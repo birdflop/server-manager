@@ -1,0 +1,84 @@
+@import 'tailwindcss';
+
+/* Manual theme control via the data-theme attribute on <html>. */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Map brand tokens onto Tailwind color/radius utilities.
+   `inline` keeps the var() reference so runtime theme switches apply. */
+@theme inline {
+  --color-app: var(--c-app);
+  --color-sidebar: var(--c-sidebar);
+  --color-surface: var(--c-surface);
+  --color-surface-2: var(--c-surface-2);
+  --color-input: var(--c-input);
+  --color-border: var(--c-border);
+  --color-fg: var(--c-fg);
+  --color-fg-muted: var(--c-fg-muted);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-accent-2: var(--c-accent-2);
+  --radius-brand: 0.625rem;
+}
+
+/* Light theme (Birdflop light mode: white surfaces, neutral text, 500-level accents). */
+:root,
+[data-theme='light'] {
+  --c-app: #ffffff;
+  --c-sidebar: #f1f5f9;
+  --c-surface: #ffffff;
+  --c-surface-2: #e5e7eb;
+  --c-input: #f3f4f6;
+  --c-border: rgba(15, 23, 42, 0.1);
+  --c-fg: #171717;
+  --c-fg-muted: #525252;
+  --c-accent: #0bb6d6;
+  --c-accent-fg: #04161d;
+  --c-accent-2: #545eb6;
+  color-scheme: light;
+}
+
+/* Dark theme (Birdflop default: navy backgrounds, cyan + indigo accents). */
+[data-theme='dark'] {
+  --c-app: #101828;
+  --c-sidebar: #1a1a2e;
+  --c-surface: #1e2939;
+  --c-surface-2: #252542;
+  --c-input: #252542;
+  --c-border: rgba(255, 255, 255, 0.08);
+  --c-fg: #e0e0e0;
+  --c-fg-muted: #8b8bb0;
+  --c-accent: #54daf4;
+  --c-accent-fg: #04161d;
+  --c-accent-2: #7b84e0;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--c-app);
+  color: var(--c-fg);
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Thin, on-brand scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: var(--c-border);
+  border-radius: 9999px;
+}
