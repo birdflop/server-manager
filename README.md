@@ -32,31 +32,31 @@ Testing a plugin or mod usually means hand-downloading the right server jar, fid
 
 ## Features
 
-### 🚀 Guided server creation
+### Guided server creation
 
 A three-step wizard: choose the software, pick a Minecraft version and build (fetched live from each project's API), then configure name, port, memory, Java, and JVM args. Forge/NeoForge installers and Quilt/Fabric loaders are handled for you.
 
 <img src="docs/screenshots/create-wizard.png" alt="Create-instance wizard showing the software picker" width="760" />
 
-### 🖥️ Live console per server
+### Live console per server
 
 Full color console powered by xterm.js — streams stdout/stderr in real time, keeps scrollback when you switch tabs, and lets you send commands (with history) straight to the server. Start, stop, and restart from the header, with a live status dot and CPU/memory usage.
 
 <img src="docs/screenshots/console.png" alt="Live server console with command input" width="820" />
 
-### 🧩 Plugins & mods, built in
+### Plugins & mods, built in
 
 Browse and one-click install content without leaving the app. Plugin servers search **Modrinth**, **Hangar**, and **SpigotMC**; mod loaders search **Modrinth** — filtered automatically to your server's loader. You can also drag & drop `.jar` files in.
 
 <img src="docs/screenshots/browse-plugins.png" alt="Browsing Modrinth for plugins from inside the app" width="820" />
 
-### ⚙️ Settings, backups & organization
+### Settings, backups & organization
 
 Edit runtime settings (port, memory slider, Java install, extra JVM args), snapshot the whole server folder to a backup and restore it later, duplicate a server, or organize servers into collapsible groups with drag & drop. Import an existing server folder to bring it under management.
 
 <img src="docs/screenshots/settings.png" alt="Per-server settings view" width="820" />
 
-### 🌗 Light & dark themes
+### Light & dark themes
 
 Styled to the Birdflop brand, with a one-click theme toggle.
 
