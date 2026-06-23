@@ -17,10 +17,12 @@ function ramLabel(mb: number): string {
 
 export function StepConfigure({
   mcVersion,
+  isProxy = false,
   form,
   update
 }: {
   mcVersion: string
+  isProxy?: boolean
   form: ConfigureForm
   update: (patch: Partial<ConfigureForm>) => void
 }): ReactElement {
@@ -178,18 +180,24 @@ export function StepConfigure({
         />
       </Field>
 
-      <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-border p-3 text-sm">
-        <input
-          type="checkbox"
-          checked={form.eula}
-          onChange={(e) => update({ eula: e.target.checked })}
-          className="h-4 w-4 accent-[var(--c-accent)]"
-        />
-        <span>
-          I accept the{' '}
-          <span className="text-accent">Minecraft EULA</span> (writes <code>eula=true</code>)
-        </span>
-      </label>
+      {isProxy ? (
+        <p className="rounded-md border border-border p-3 text-xs text-fg-muted">
+          Proxies don&apos;t run a Minecraft world, so no EULA is required.
+        </p>
+      ) : (
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-md border border-border p-3 text-sm">
+          <input
+            type="checkbox"
+            checked={form.eula}
+            onChange={(e) => update({ eula: e.target.checked })}
+            className="h-4 w-4 accent-[var(--c-accent)]"
+          />
+          <span>
+            I accept the{' '}
+            <span className="text-accent">Minecraft EULA</span> (writes <code>eula=true</code>)
+          </span>
+        </label>
+      )}
     </div>
   )
 }

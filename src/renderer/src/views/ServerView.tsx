@@ -12,7 +12,7 @@ import {
   MemoryStick
 } from 'lucide-react'
 import type { Instance, ServerStatus } from '@shared/types'
-import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf } from '@shared/software'
+import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf, isProxy } from '@shared/software'
 import { useApp } from '../store'
 import { StatusDot } from '../components/StatusDot'
 import { ConsoleView } from './ConsoleView'
@@ -88,8 +88,9 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
               )}
             </div>
             <p className="mt-0.5 text-xs text-fg-muted">
-              {SERVER_TYPE_MAP[instance.serverType].label} · MC {instance.mcVersion} ·{' '}
-              {instance.build}
+              {SERVER_TYPE_MAP[instance.serverType].label} ·{' '}
+              {isProxy(instance.serverType) ? '' : 'MC '}
+              {instance.mcVersion} · {instance.build}
             </p>
           </div>
 

@@ -8,6 +8,13 @@ export type ServerType =
   | 'forge'
   | 'neoforge'
   | 'vanilla'
+  // Proxies (route players between backend servers; not a Minecraft server themselves).
+  | 'velocity'
+  | 'waterfall'
+  | 'bungeecord'
+
+/** Broad grouping of a server type: a runnable Minecraft server vs a proxy. */
+export type ServerCategory = 'server' | 'proxy'
 
 /** What the per-type content folder is called (plugins vs mods). */
 export type ContentKind = 'plugins' | 'mods' | 'none'

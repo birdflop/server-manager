@@ -11,7 +11,7 @@ import {
   Folder
 } from 'lucide-react'
 import type { Instance, InstanceMeta, Group, ServerStatus } from '@shared/types'
-import { SERVER_TYPE_MAP } from '@shared/software'
+import { SERVER_TYPE_MAP, isProxy } from '@shared/software'
 import { useApp } from '../store'
 import { StatusDot } from '../components/StatusDot'
 
@@ -110,7 +110,9 @@ function ServerCard({ meta, instance }: { meta: InstanceMeta; instance?: Instanc
       </div>
 
       <div className="text-xs text-fg-muted">
-        {info ? `${info} · MC ${instance?.mcVersion} · :${instance?.port}` : 'Loading…'}
+        {info
+          ? `${info} · ${instance && isProxy(instance.serverType) ? '' : 'MC '}${instance?.mcVersion} · :${instance?.port}`
+          : 'Loading…'}
       </div>
 
       <div className="flex items-center justify-between">

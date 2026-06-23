@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Loader2, AlertCircle, Check } from 'lucide-react'
 import type { Build, ServerType } from '@shared/types'
+import { isProxy } from '@shared/software'
 
 export function StepVersion({
   serverType,
@@ -59,6 +60,8 @@ export function StepVersion({
     [versions, filter]
   )
 
+  const versionLabel = isProxy(serverType) ? 'Version' : 'Minecraft version'
+
   if (error) {
     return (
       <div className="flex items-center gap-2 rounded-brand border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-300">
@@ -72,7 +75,7 @@ export function StepVersion({
       {/* Versions */}
       <div className="flex min-h-0 flex-col">
         <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-          Minecraft version
+          {versionLabel}
         </div>
         <input
           value={filter}

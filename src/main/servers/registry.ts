@@ -2,6 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { BrowserWindow, Notification } from 'electron'
 import pidusage from 'pidusage'
 import type { Instance, ServerStatus } from '@shared/types'
+import { readyPatternFor, stopCommandFor } from '@shared/software'
 import { buildLaunch } from './launch'
 import { getConfig } from '../config'
 
@@ -118,10 +119,11 @@ export function start(instance: Instance, dir: string): void {
   setStatus(instance.id, 'starting')
   ensureStatsPolling()
 
+  const readyPattern = readyPatternFor(instance.serverType)
   const onData = (d: Buffer): void => {
     const text = d.toString()
     appendOutput(instance.id, text)
-    if (r.status === 'starting' && /Done \(/.test(text)) {
+    if (r.status === 'starting' && readyPattern.test(text)) {
       setStatus(instance.id, 'running')
       notify(instance.name, 'Server is ready.')
     }
@@ -159,7 +161,7 @@ export function stop(id: string): void {
   r.userStopped = true
   setStatus(id, 'stopping')
   try {
-    if (r.child.stdin.writable) r.child.stdin.write('stop\n')
+    if (r.child.stdin.writable) r.child.stdin.write(`${stopCommandFor(r.instance.serverType)}\n`)
   } catch {
     /* fall through to force-kill */
   }

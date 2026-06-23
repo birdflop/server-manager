@@ -19,7 +19,18 @@ import { importInstance } from './store/instances'
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
 
-const TYPES: ServerType[] = ['paper', 'purpur', 'vanilla', 'fabric', 'quilt', 'forge', 'neoforge']
+const TYPES: ServerType[] = [
+  'paper',
+  'purpur',
+  'vanilla',
+  'fabric',
+  'quilt',
+  'forge',
+  'neoforge',
+  'velocity',
+  'waterfall',
+  'bungeecord'
+]
 
 /** Dev-only integration check: exercises every provider + Java detection against the real world. */
 export async function runSelfTest(): Promise<void> {

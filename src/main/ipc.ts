@@ -38,7 +38,8 @@ import { ensureJava } from './java/adoptium'
 import { requiredJavaMajor } from './java/requirements'
 import { getUpdateStatus, checkForUpdates, downloadUpdate, quitAndInstall } from './updater'
 import { installServer } from './servers/install'
-import { writeEula, setServerProperties } from './servers/properties'
+import { writeEula, setServerProperties, setProxyPort } from './servers/properties'
+import { isProxy } from '@shared/software'
 import * as servers from './servers/registry'
 import {
   listContent,
@@ -152,8 +153,13 @@ export function registerIpc(): void {
     const result = await installServer(dir, spec, payload.javaPath, send)
 
     send({ phase: 'configure' })
-    if (payload.eulaAccepted) writeEula(dir, true)
-    setServerProperties(dir, { 'server-port': payload.port })
+    if (isProxy(payload.serverType)) {
+      // Proxies have no Minecraft EULA and use their own config file for the bind port.
+      setProxyPort(dir, payload.serverType, payload.port)
+    } else {
+      if (payload.eulaAccepted) writeEula(dir, true)
+      setServerProperties(dir, { 'server-port': payload.port })
+    }
 
     const instance: Instance = {
       id,
@@ -183,8 +189,12 @@ export function registerIpc(): void {
   ipcMain.handle('instances:update', (_e, id: string, patch: InstancePatch) => {
     const root = requireRoot()
     const result = updateInstance(root, id, patch)
-    // Keep server.properties in sync when the port changes.
-    if (result && patch.port) setServerProperties(instanceDir(root, id), { 'server-port': patch.port })
+    // Keep the bind port in sync when it changes (proxy config vs server.properties).
+    if (result && patch.port) {
+      const dir = instanceDir(root, id)
+      if (isProxy(result.instance.serverType)) setProxyPort(dir, result.instance.serverType, patch.port)
+      else setServerProperties(dir, { 'server-port': patch.port })
+    }
     return result
   })
 

@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react'
 import { Loader2, ChevronLeft, Check, AlertCircle, Server } from 'lucide-react'
 import type { InstallProgress, ServerType } from '@shared/types'
-import { SERVER_TYPE_MAP } from '@shared/software'
+import { SERVER_TYPE_MAP, isProxy } from '@shared/software'
 import { Modal } from '../../components/Modal'
 import { useApp } from '../../store'
 import { StepSoftware } from './StepSoftware'
@@ -144,7 +144,19 @@ export default function CreateInstanceWizard(): ReactElement {
         <CreatingView progress={progress} error={error} />
       ) : (
         <>
-          {step === 'software' && <StepSoftware value={serverType} onSelect={setServerType} />}
+          {step === 'software' && (
+            <StepSoftware
+              value={serverType}
+              onSelect={(t) => {
+                if (t === serverType) return
+                // Versions/builds differ per software (proxies have their own namespace),
+                // so clear the downstream selection when the type changes.
+                setServerType(t)
+                setMcVersion(undefined)
+                setBuild(undefined)
+              }}
+            />
+          )}
           {step === 'version' && serverType && (
             <StepVersion
               serverType={serverType}
@@ -158,7 +170,12 @@ export default function CreateInstanceWizard(): ReactElement {
             />
           )}
           {step === 'configure' && mcVersion && (
-            <StepConfigure mcVersion={mcVersion} form={form} update={update} />
+            <StepConfigure
+              mcVersion={mcVersion}
+              isProxy={!!serverType && isProxy(serverType)}
+              form={form}
+              update={update}
+            />
           )}
         </>
       )}

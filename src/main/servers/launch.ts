@@ -1,6 +1,7 @@
 import { join } from 'node:path'
 import { existsSync, writeFileSync, readdirSync, statSync } from 'node:fs'
 import type { Instance } from '@shared/types'
+import { isProxy } from '@shared/software'
 
 export interface LaunchCmd {
   command: string
@@ -56,7 +57,10 @@ export function buildLaunch(instance: Instance, dir: string): LaunchCmd {
     return { command: java, args: ['@user_jvm_args.txt', `@${rel}`, 'nogui'] }
   }
 
-  // Runnable jar (Paper / Purpur / Vanilla / Fabric / Quilt).
+  // Runnable jar (Paper / Purpur / Vanilla / Fabric / Quilt / proxies).
   const jar = instance.launchJar || 'server.jar'
-  return { command: java, args: [...memArgs(instance.ramMB), ...instance.jvmArgs, '-jar', jar, 'nogui'] }
+  const args = [...memArgs(instance.ramMB), ...instance.jvmArgs, '-jar', jar]
+  // Proxies (Velocity / BungeeCord / Waterfall) have no GUI and reject the `nogui` flag.
+  if (!isProxy(instance.serverType)) args.push('nogui')
+  return { command: java, args }
 }
