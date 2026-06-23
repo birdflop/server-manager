@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/birdflop/server-manager/compare/v0.3.0...v0.3.1) (2026-06-23)
+
+
+### Bug Fixes
+
+* broken builds ([e45ff40](https://github.com/birdflop/server-manager/commit/e45ff40b163361e4d45de3ca4e56656c9743ee77))
+
 ## [0.3.0](https://github.com/birdflop/server-manager/compare/v0.2.1...v0.3.0) (2026-06-23)
 
 
