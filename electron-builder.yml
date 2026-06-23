@@ -21,3 +21,6 @@ linux:
     - AppImage
     - deb
   category: Development
+  synopsis: Local Minecraft test-server manager
+  maintainer: Birdflop <engineering@birdflop.com>
+  syncDesktopName: true

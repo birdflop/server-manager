@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "Local Minecraft test-server manager",
   "main": "./out/main/index.js",
-  "author": "Birdflop",
+  "author": {
+    "name": "Birdflop",
+    "email": "engineering@birdflop.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "electron-vite dev",
