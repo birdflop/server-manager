@@ -1,5 +1,8 @@
 appId: org.birdflop.servermanager
 productName: Birdflop Server Manager
+# Space-free artifact names so the built file, latest.yml, and the uploaded GitHub
+# asset always match — spaces in productName otherwise break electron-updater (404).
+artifactName: ${name}-${version}-${arch}.${ext}
 afterPack: build/afterPack.js
 publish:
   provider: github
