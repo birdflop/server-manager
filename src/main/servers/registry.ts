@@ -5,6 +5,7 @@ import type { Instance, ServerStatus } from '@shared/types'
 import { readyPatternFor, stopCommandFor } from '@shared/software'
 import { buildLaunch } from './launch'
 import { diagnose } from './diagnose'
+import { syncWatch, stopWatch, stopAllWatch } from './watcher'
 import { getConfig } from '../config'
 
 interface Running {
@@ -59,6 +60,36 @@ function appendOutput(id: string, chunk: string): void {
   r.buffer += chunk
   if (r.buffer.length > MAX_BUFFER) r.buffer = r.buffer.slice(-MAX_BUFFER)
   broadcast('server:output', { id, chunk })
+}
+
+/** Attach a file watcher for an instance, wiring changes to the configured action. */
+function attachWatch(instance: Instance, dir: string): void {
+  syncWatch(instance, dir, (changedPath) => fireWatch(instance.id, dir, changedPath))
+}
+
+/** Run the watch action (restart / command) for a change — only on a fully-running server. */
+function fireWatch(id: string, dir: string, changedPath: string): void {
+  const r = running.get(id)
+  if (!r || r.status !== 'running') return
+  const cfg = r.instance.watch
+  if (!cfg?.enabled) return
+  const command = cfg.command?.trim()
+  if (cfg.action === 'command' && command) {
+    appendOutput(id, `\n\x1b[36m[watch] ${changedPath} changed — running "${command}"…\x1b[0m\n`)
+    sendCommand(id, command)
+  } else {
+    appendOutput(id, `\n\x1b[36m[watch] ${changedPath} changed — restarting…\x1b[0m\n`)
+    restart(r.instance, dir)
+  }
+}
+
+/** Re-sync an instance's watcher after its config changed (no-op if not running). */
+export function refreshWatch(instance: Instance, dir: string): void {
+  const r = running.get(instance.id)
+  if (!r || r.status === 'stopped') return
+  // Keep the running entry's config current so the watcher + any restart use the new settings.
+  r.instance = instance
+  attachWatch(instance, dir)
 }
 
 export function isRunning(id: string): boolean {
@@ -119,6 +150,7 @@ export function start(instance: Instance, dir: string): void {
   running.set(instance.id, r)
   setStatus(instance.id, 'starting')
   ensureStatsPolling()
+  attachWatch(instance, dir)
 
   const readyPattern = readyPatternFor(instance.serverType)
   const onData = (d: Buffer): void => {
@@ -139,6 +171,7 @@ export function start(instance: Instance, dir: string): void {
     appendOutput(instance.id, `\n[process exited with code ${code ?? 'unknown'}]\n`)
     const crashed = !r.userStopped && code !== 0
     setStatus(instance.id, 'stopped')
+    stopWatch(instance.id)
 
     // Diagnose abnormal exits (even clean-code ones with a known fatal marker, e.g. EULA).
     if (!r.userStopped) {
@@ -202,6 +235,7 @@ export function restart(instance: Instance, dir: string): void {
 
 /** Kill every running server (used on app quit). */
 export function stopAll(): void {
+  stopAllWatch()
   for (const [, r] of running) {
     try {
       r.child.kill()

@@ -205,11 +205,15 @@ export function registerIpc(): void {
   ipcMain.handle('instances:update', (_e, id: string, patch: InstancePatch) => {
     const root = requireRoot()
     const result = updateInstance(root, id, patch)
-    // Keep the bind port in sync when it changes (proxy config vs server.properties).
-    if (result && patch.port) {
+    if (result) {
       const dir = instanceDir(root, id)
-      if (isProxy(result.instance.serverType)) setProxyPort(dir, result.instance.serverType, patch.port)
-      else setServerProperties(dir, { 'server-port': patch.port })
+      // Keep the bind port in sync when it changes (proxy config vs server.properties).
+      if (patch.port) {
+        if (isProxy(result.instance.serverType)) setProxyPort(dir, result.instance.serverType, patch.port)
+        else setServerProperties(dir, { 'server-port': patch.port })
+      }
+      // Re-sync the file watcher live if its config changed and the server is running.
+      if (patch.watch !== undefined) servers.refreshWatch(result.instance, dir)
     }
     return result
   })

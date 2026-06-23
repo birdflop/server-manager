@@ -56,6 +56,41 @@ export interface Instance {
   createdAt: number
   /** For proxies only: the backend servers this proxy routes to. */
   backends?: ProxyBackend[]
+  /** Auto-restart-on-file-change config (undefined = disabled). */
+  watch?: WatchConfig
+}
+
+/** What the file watcher does when a watched path changes. */
+export type WatchAction = 'restart' | 'command'
+
+/**
+ * Per-instance auto-restart-on-file-change config. When enabled and the server is
+ * running, changes to any watched path trigger the configured action (debounced).
+ */
+export interface WatchConfig {
+  enabled: boolean
+  /** Files or folders to watch, relative to the instance dir (e.g. "plugins", "server.properties"). */
+  paths: string[]
+  /**
+   * When watching a folder, only react to files with these extensions (lowercase, no dot,
+   * e.g. ["jar"]). Empty = react to any file. Ignored for directly-watched files.
+   */
+  extensions: string[]
+  /** What to do on a change: full restart, or send a console command (e.g. "reload confirm"). */
+  action: WatchAction
+  /** For action='command': the console command to send. */
+  command?: string
+  /** How long to wait after the last change before acting, in milliseconds. */
+  debounceMs: number
+}
+
+/** Default watcher config for a freshly-enabled watcher (paths/extensions filled per server type by the UI). */
+export const DEFAULT_WATCH: WatchConfig = {
+  enabled: false,
+  paths: [],
+  extensions: ['jar'],
+  action: 'restart',
+  debounceMs: 1000
 }
 
 /** A backend server a proxy forwards players to. */
@@ -337,7 +372,7 @@ export interface BirdflopApi {
   /** Apply editable settings (name, port, ram, java, jvm args). */
   updateInstance(
     id: string,
-    patch: Partial<Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs'>>
+    patch: Partial<Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs' | 'watch'>>
   ): Promise<{ instance: Instance; index: ManagerIndex } | null>
   /** Delete a server (folder + index entry). */
   deleteInstance(id: string): Promise<ManagerIndex>

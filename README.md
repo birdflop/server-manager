@@ -56,6 +56,10 @@ Edit runtime settings (port, memory slider, Java install, extra JVM args), snaps
 
 <img src="docs/screenshots/settings.png" alt="Per-server settings view" width="820" />
 
+### File watcher (auto-restart on change)
+
+Point a server at one or more files or folders (e.g. its `plugins`/`mods` folder, or `server.properties`) and have it automatically restart — or run a console command like `reload confirm` — whenever those files change. Ideal for the plugin/mod development loop: rebuild your jar, drop it in, and the server reloads itself. Changes are debounced and wait for writes to finish, so a half-written jar won't trigger a restart. Configured per server in **Settings**; only acts while the server is running.
+
 ### Light & dark themes
 
 Styled to the Birdflop brand, with a one-click theme toggle.
