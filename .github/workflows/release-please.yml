@@ -40,10 +40,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Build & publish installers
-        run: npm run release
+      - name: Build installers
+        run: npm run package
         env:
-          # electron-builder uploads assets to the GitHub Release created above.
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No code-signing certificates in CI.
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Upload installers to release
+        shell: bash
+        run: |
+          shopt -s nullglob
+          # latest*.yml = auto-update metadata (excludes builder-debug.yml).
+          files=(dist/*.exe dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb dist/latest*.yml dist/*.blockmap)
+          echo "Uploading: ${files[*]}"
+          gh release upload "${{ needs.release-please.outputs.tag_name }}" "${files[@]}" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
