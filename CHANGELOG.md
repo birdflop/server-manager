@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.0](https://github.com/birdflop/server-manager/compare/v0.2.1...v0.3.0) (2026-06-23)
+
+
+### Features
+
+* built-in file browser/editor with external-editor launch ([70f7415](https://github.com/birdflop/server-manager/commit/70f74152f065ce114c27e1867767abe9468aac3b))
+* proxy backend linking, update checks, perf history & console tools ([dc61884](https://github.com/birdflop/server-manager/commit/dc618845bf1b0eeeb27385702bdec6ce886f7400))
+* proxy server types ([3ecdc4c](https://github.com/birdflop/server-manager/commit/3ecdc4c63b1780d5206d6bcb0ca231e5e72dfdc8))
+
 ## [0.2.1](https://github.com/birdflop/server-manager/compare/v0.2.0...v0.2.1) (2026-06-23)
 
 
