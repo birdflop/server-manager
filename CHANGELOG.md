@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/birdflop/server-manager/compare/v0.3.1...v0.4.0) (2026-06-23)
+
+
+### Features
+
+* file watcher for auto restart/reload ([d1db23c](https://github.com/birdflop/server-manager/commit/d1db23c840993f1246cbdcf7987890f3677b1afc))
+* server sharing/tunneling ([0cd3dfb](https://github.com/birdflop/server-manager/commit/0cd3dfbff3dc7566d1fac533a5252986b9771d6d))
+
 ## [0.3.1](https://github.com/birdflop/server-manager/compare/v0.3.0...v0.3.1) (2026-06-23)
 
 
