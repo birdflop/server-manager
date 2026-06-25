@@ -22,6 +22,14 @@ export const SERVER_TYPES: ServerTypeInfo[] = [
     usesInstaller: false
   },
   {
+    id: 'folia',
+    label: 'Folia',
+    blurb: 'Paper fork with regionized multithreading for huge player counts. Runs Folia-compatible plugins.',
+    category: 'server',
+    contentKind: 'plugins',
+    usesInstaller: false
+  },
+  {
     id: 'purpur',
     label: 'Purpur',
     blurb: 'Paper fork with extra gameplay & config options.',
@@ -143,6 +151,7 @@ export function contentSourcesOf(type: ServerType): ContentSource[] {
 /** Modrinth loader facets compatible with each server type (for search + install). */
 export const MODRINTH_LOADERS: Record<ServerType, string[]> = {
   paper: ['paper', 'spigot', 'bukkit', 'purpur', 'folia'],
+  folia: ['folia', 'paper', 'spigot', 'bukkit'],
   purpur: ['purpur', 'paper', 'spigot', 'bukkit'],
   fabric: ['fabric'],
   quilt: ['quilt', 'fabric'],

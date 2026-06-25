@@ -65,7 +65,8 @@ import {
   readFile as readInstanceFile,
   writeFile as writeInstanceFile,
   detectEditors,
-  openInEditor
+  openInEditor,
+  instanceSubdir
 } from './servers/files'
 import type { ContentSource } from '@shared/types'
 
@@ -227,8 +228,8 @@ export function registerIpc(): void {
     return deleteInstance(root, id)
   })
 
-  ipcMain.handle('instances:openFolder', (_e, id: string) => {
-    shell.openPath(instanceDir(requireRoot(), id))
+  ipcMain.handle('instances:openFolder', (_e, id: string, relPath?: string) => {
+    shell.openPath(instanceSubdir(requireRoot(), id, relPath ?? ''))
   })
 
   ipcMain.handle('instances:clone', (_e, id: string) => cloneInstance(requireRoot(), id))

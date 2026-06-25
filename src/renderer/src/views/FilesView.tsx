@@ -166,7 +166,8 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
         </nav>
 
         <button
-          onClick={() => void window.api.openInstanceFolder(instanceId)}
+          onClick={() => void window.api.openInstanceFolder(instanceId, cwd)}
+          title={cwd ? `Open ${cwd} in your file manager` : 'Open the server folder in your file manager'}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
         >
           <FolderOpen size={13} /> Open folder

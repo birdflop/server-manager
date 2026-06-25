@@ -22,6 +22,14 @@ function resolveInside(root: string, id: string, relPath: string): string {
   return target
 }
 
+/**
+ * Absolute path to a folder inside an instance, guarded against escaping the instance dir.
+ * Used to reveal the currently-viewed folder in the OS file manager.
+ */
+export function instanceSubdir(root: string, id: string, relPath: string): string {
+  return resolveInside(root, id, relPath)
+}
+
 /** List a directory inside an instance (relPath "" = the instance root). Dirs first, then files. */
 export function listFiles(root: string, id: string, relPath: string): FileEntry[] {
   const dir = resolveInside(root, id, relPath)

@@ -2,6 +2,7 @@
 
 export type ServerType =
   | 'paper'
+  | 'folia'
   | 'purpur'
   | 'fabric'
   | 'quilt'
@@ -420,8 +421,8 @@ export interface BirdflopApi {
   ): Promise<{ instance: Instance; index: ManagerIndex } | null>
   /** Delete a server (folder + index entry). */
   deleteInstance(id: string): Promise<ManagerIndex>
-  /** Open the server's folder in the OS file manager. */
-  openInstanceFolder(id: string): Promise<void>
+  /** Open a folder inside the server (relPath, default the root) in the OS file manager. */
+  openInstanceFolder(id: string, relPath?: string): Promise<void>
   /** Duplicate an instance (copies files, new id + bumped port). */
   cloneInstance(id: string): Promise<{ instance: Instance; index: ManagerIndex }>
   /** Read a proxy's configured backend servers. */

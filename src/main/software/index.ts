@@ -1,6 +1,7 @@
 import type { ServerType } from '@shared/types'
 import type { ServerProvider } from './types'
 import { paper } from './paper'
+import { folia } from './folia'
 import { purpur } from './purpur'
 import { vanilla } from './vanilla'
 import { fabric } from './fabric'
@@ -13,6 +14,7 @@ import { bungeecord } from './bungeecord'
 
 const PROVIDERS: Record<ServerType, ServerProvider> = {
   paper,
+  folia,
   purpur,
   vanilla,
   fabric,
