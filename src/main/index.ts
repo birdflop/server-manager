@@ -1,9 +1,9 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, shell } from 'electron'
 import { join, dirname } from 'node:path'
 import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { registerIpc } from './ipc'
 import { runSelfTest } from './selftest'
-import { stopAll } from './servers/registry'
+import { stopAll, runningIds } from './servers/registry'
 import { stopAllTunnels } from './tunnels/registry'
 import { initUpdater, checkForUpdates } from './updater'
 import { getConfig } from './config'
@@ -38,6 +38,30 @@ async function generateIcon(outPath: string): Promise<void> {
 
 const isDev = !!process.env.ELECTRON_RENDERER_URL
 
+/**
+ * Native confirm shown before quitting while servers are still running.
+ * Returns true to proceed with the quit, false to abort. No-op (true) when nothing is running.
+ */
+function confirmQuitWithRunningServers(parent?: BrowserWindow): boolean {
+  const count = runningIds().length
+  if (count === 0) return true
+  const opts = {
+    type: 'warning' as const,
+    buttons: ['Stop servers & quit', 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    title: 'Servers still running',
+    message: count === 1 ? '1 server is still running.' : `${count} servers are still running.`,
+    detail:
+      count === 1
+        ? 'Quitting will stop it. Are you sure you want to quit?'
+        : 'Quitting will stop them all. Are you sure you want to quit?'
+  }
+  const choice = parent ? dialog.showMessageBoxSync(parent, opts) : dialog.showMessageBoxSync(opts)
+  return choice === 0
+}
+
 function createWindow(): void {
   const win = new BrowserWindow({
     width: 1280,
@@ -62,11 +86,21 @@ function createWindow(): void {
     mainWindow = null
   })
 
-  // Minimize to tray instead of quitting, when enabled.
   win.on('close', (e) => {
+    // Minimize to tray instead of quitting, when enabled (servers keep running in the background).
     if (!isQuitting && getConfig().minimizeToTray) {
       e.preventDefault()
       win.hide()
+      return
+    }
+    // On Windows/Linux, closing the window quits the app — confirm if servers are still running.
+    // (On macOS the app stays alive after the window closes, so the before-quit guard handles it.)
+    if (!isQuitting && process.platform !== 'darwin' && runningIds().length > 0) {
+      e.preventDefault()
+      if (confirmQuitWithRunningServers(win)) {
+        isQuitting = true
+        app.quit()
+      }
     }
   })
 
@@ -128,6 +162,7 @@ function createTray(): void {
       {
         label: 'Quit',
         click: () => {
+          if (!confirmQuitWithRunningServers(mainWindow?.isVisible() ? mainWindow : undefined)) return
           isQuitting = true
           app.quit()
         }
@@ -162,7 +197,16 @@ app.whenReady().then(() => {
   })
 })
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  // Final guard for quit paths that bypass the window close handler (e.g. macOS Cmd+Q, app menu).
+  if (!isQuitting && runningIds().length > 0) {
+    e.preventDefault()
+    if (confirmQuitWithRunningServers(mainWindow?.isVisible() ? mainWindow : undefined)) {
+      isQuitting = true
+      app.quit()
+    }
+    return
+  }
   stopAll()
   stopAllTunnels()
 })
