@@ -1,8 +1,9 @@
 name: Dev Build
 
 # Publishes a nightly "dev" prerelease to GitHub Releases on every push to main.
-# Versions are <next-patch>-dev.<run#> (e.g. 0.5.1-dev.42), which makes electron-builder emit
-# dev*.yml channel metadata. The in-app updater pulls these when the user is on the "dev" channel.
+# Versions are <next-patch>-dev.<run#> (e.g. 0.5.1-dev.42). electron-builder still names the update
+# metadata latest*.yml (its GitHub provider ignores detectUpdateChannel), so the build job renames
+# them to dev*.yml — what the in-app "dev" channel (autoUpdater.channel = 'dev') requests.
 on:
   workflow_dispatch:
   push:
@@ -87,6 +88,18 @@ jobs:
         env:
           # Don't attempt code signing in CI (no certificates).
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Rename update metadata to the dev channel
+        shell: bash
+        run: |
+          # electron-builder's GitHub provider ignores detectUpdateChannel, so it always names the
+          # update metadata latest*.yml — even for a -dev version. Rename to dev*.yml so the in-app
+          # dev channel (autoUpdater.channel = 'dev') finds it directly. Content is unchanged; the
+          # files inside still reference the correct installers.
+          shopt -s nullglob
+          for f in dist/latest*.yml; do
+            mv "$f" "${f/latest/dev}"
+          done
+          ls -1 dist/*.yml || true
       - name: Upload to prerelease
         shell: bash
         env:
