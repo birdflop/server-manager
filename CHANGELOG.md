@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/birdflop/server-manager/compare/v0.5.0...v0.6.0) (2026-06-25)
+
+
+### Features
+
+* confirm close when servers running ([6c4a812](https://github.com/birdflop/server-manager/commit/6c4a8128a01e4116ed246e29de03580bcc72a9cd))
+* dev builds ([b1831bb](https://github.com/birdflop/server-manager/commit/b1831bbcd13183a0cb7e382367fd59490087ef89))
+
 ## [0.5.0](https://github.com/birdflop/server-manager/compare/v0.4.0...v0.5.0) (2026-06-25)
 
 
