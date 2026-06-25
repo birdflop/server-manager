@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/birdflop/server-manager/compare/v0.4.0...v0.5.0) (2026-06-25)
+
+
+### Features
+
+* Folia server type ([9c9f4cb](https://github.com/birdflop/server-manager/commit/9c9f4cbd644d4f7f873267f8780462642850c8a9))
+
+
+### Bug Fixes
+
+* open folder always opening root folder ([9c9f4cb](https://github.com/birdflop/server-manager/commit/9c9f4cbd644d4f7f873267f8780462642850c8a9))
+* update modal rendering below settings modal ([705e557](https://github.com/birdflop/server-manager/commit/705e557623b7f96db28ea9cf98b217a9fc4dae68))
+
 ## [0.4.0](https://github.com/birdflop/server-manager/compare/v0.3.1...v0.4.0) (2026-06-23)
 
 
