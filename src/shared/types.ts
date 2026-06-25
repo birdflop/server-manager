@@ -184,6 +184,9 @@ export interface DetectedEditor {
   name: string
 }
 
+/** Update channel the app follows: vetted stable releases or bleeding-edge dev builds. */
+export type ReleaseChannel = 'stable' | 'dev'
+
 /** State of the in-app auto-updater. */
 export interface UpdateStatus {
   state:
@@ -347,6 +350,8 @@ export interface AppConfig {
   defaultJavaPath: string | null
   /** Whether to check for updates automatically on launch. */
   autoUpdate: boolean
+  /** Which update channel to follow: 'stable' releases or 'dev' nightly prereleases. */
+  releaseChannel: ReleaseChannel
   /** Show desktop notifications when a server becomes ready or crashes. */
   notifications: boolean
   /** Automatically restart a server that exits unexpectedly. */

@@ -143,6 +143,30 @@ export default function AppSettingsModal(): ReactElement {
               onChange={(v) => void updateConfig({ autoUpdate: v })}
             />
           </Row>
+          <Row
+            label="Release channel"
+            hint={
+              config.releaseChannel === 'dev'
+                ? 'Dev builds ship the latest from main and may be unstable.'
+                : 'Stable, vetted releases.'
+            }
+          >
+            <div className="flex rounded-brand bg-surface-2 p-0.5 text-sm">
+              {(['stable', 'dev'] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => void updateConfig({ releaseChannel: c })}
+                  className={`rounded-md px-3 py-1 capitalize transition ${
+                    config.releaseChannel === c
+                      ? 'bg-accent text-accent-fg'
+                      : 'text-fg-muted hover:text-fg'
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </Row>
         </section>
 
         <section>

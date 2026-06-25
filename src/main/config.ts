@@ -9,6 +9,7 @@ const DEFAULT_CONFIG: AppConfig = {
   defaultRamMB: 2048,
   defaultJavaPath: null,
   autoUpdate: true,
+  releaseChannel: 'stable',
   notifications: true,
   autoRestartOnCrash: false,
   minimizeToTray: false,

@@ -5,6 +5,7 @@ import { useApp } from '../store'
 
 export default function UpdateModal(): ReactElement {
   const version = useApp((s) => s.appVersion)
+  const channel = useApp((s) => s.config?.releaseChannel ?? 'stable')
   const update = useApp((s) => s.update)
   const close = useApp((s) => s.closeUpdateModal)
   const check = useApp((s) => s.checkForUpdates)
@@ -16,6 +17,11 @@ export default function UpdateModal(): ReactElement {
       <div className="flex flex-col items-center gap-4 py-4 text-center">
         <div className="text-sm text-fg-muted">
           Current version <span className="font-mono text-fg">v{version || '…'}</span>
+          {channel === 'dev' && (
+            <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium text-accent">
+              dev channel
+            </span>
+          )}
         </div>
 
         {update.state === 'checking' && (

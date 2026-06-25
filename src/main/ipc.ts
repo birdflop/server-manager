@@ -37,7 +37,13 @@ import { getProvider } from './software'
 import { detectJava } from './java/detect'
 import { ensureJava } from './java/adoptium'
 import { requiredJavaMajor } from './java/requirements'
-import { getUpdateStatus, checkForUpdates, downloadUpdate, quitAndInstall } from './updater'
+import {
+  getUpdateStatus,
+  checkForUpdates,
+  downloadUpdate,
+  quitAndInstall,
+  applyUpdateChannel
+} from './updater'
 import { installServer } from './servers/install'
 import {
   writeEula,
@@ -87,7 +93,15 @@ export function registerIpc(): void {
     setConfig({ theme })
   })
 
-  ipcMain.handle('config:update', (_e, patch: Partial<AppConfig>) => setConfig(patch))
+  ipcMain.handle('config:update', (_e, patch: Partial<AppConfig>) => {
+    const next = setConfig(patch)
+    // Switching update channels takes effect immediately: re-point the updater and re-check.
+    if ('releaseChannel' in patch) {
+      applyUpdateChannel()
+      void checkForUpdates()
+    }
+    return next
+  })
 
   ipcMain.handle('dialog:pickDirectory', async () => {
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]

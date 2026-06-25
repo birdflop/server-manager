@@ -1,5 +1,8 @@
 name: Dev Build
 
+# Publishes a nightly "dev" prerelease to GitHub Releases on every push to main.
+# Versions are <next-patch>-dev.<run#> (e.g. 0.5.1-dev.42), which makes electron-builder emit
+# dev*.yml channel metadata. The in-app updater pulls these when the user is on the "dev" channel.
 on:
   workflow_dispatch:
   push:
@@ -8,13 +11,57 @@ on:
       - '**.md'
       - 'docs/**'
 
+# Don't cancel in-flight publishes — a half-finished run can leave an orphan release/tag.
 concurrency:
   group: dev-build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
+  prepare:
+    name: Prepare dev release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Compute dev version
+        id: version
+        shell: bash
+        run: |
+          # <major>.<minor>.<patch+1>-dev.<run#> — always semver-greater than the last stable,
+          # and monotonically increasing across runs so dev→dev updates always go forward.
+          DEV_VERSION=$(node -e "const v=require('./package.json').version.split('-')[0].split('.').map(Number); v[2]+=1; process.stdout.write(v.join('.')+'-dev.'+process.env.GITHUB_RUN_NUMBER)")
+          echo "version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$DEV_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Dev version: $DEV_VERSION"
+      - name: Create prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — reusing it."
+          else
+            gh release create "$TAG" \
+              --prerelease \
+              --target "$GITHUB_SHA" \
+              --title "Dev build $TAG" \
+              --notes "Automated dev build from \`${GITHUB_SHA:0:7}\` on \`${GITHUB_REF_NAME}\`.
+
+          > ⚠️ Unstable nightly build for testers on the **dev** update channel."
+          fi
+
   build:
     name: Build (${{ matrix.artifact }})
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -33,20 +80,43 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Stamp dev version
+        run: npm version "${{ needs.prepare.outputs.version }}" --no-git-tag-version --allow-same-version
       - name: Build installers
         run: npm run package
         env:
           # Don't attempt code signing in CI (no certificates).
           CSC_IDENTITY_AUTO_DISCOVERY: false
-      - name: Upload installers
-        uses: actions/upload-artifact@v4
-        with:
-          name: birdflop-server-manager-${{ matrix.artifact }}
-          path: |
-            dist/*.exe
-            dist/*.dmg
-            dist/*.zip
-            dist/*.AppImage
-            dist/*.deb
-          if-no-files-found: warn
-          retention-days: 14
+      - name: Upload to prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          shopt -s nullglob
+          # dev*.yml = auto-update metadata for the dev channel (per-platform).
+          files=(dist/*.exe dist/*.dmg dist/*.zip dist/*.AppImage dist/*.deb dist/dev*.yml dist/*.blockmap)
+          echo "Uploading: ${files[*]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+  prune:
+    name: Prune old dev releases
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Delete dev prereleases older than the newest 5
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # gh lists releases newest-first; keep the 5 most recent -dev.* prereleases, drop the rest.
+          mapfile -t old < <(gh release list --limit 100 --json tagName,isPrerelease \
+            --jq '[.[] | select(.isPrerelease and (.tagName | test("-dev\\.")))] | .[5:] | .[].tagName')
+          if [ ${#old[@]} -eq 0 ]; then
+            echo "Nothing to prune."
+          fi
+          for tag in "${old[@]}"; do
+            echo "Deleting old dev release $tag"
+            gh release delete "$tag" --yes --cleanup-tag
+          done
