@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { join } from 'node:path'
-import { existsSync, mkdirSync, rmSync, chmodSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, chmodSync, readdirSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { downloadFile } from '../util/net'
 
@@ -49,6 +49,38 @@ export interface ManagedBinarySpec {
   url: string
   /** Archive extension. */
   ext: 'zip' | 'tar.gz'
+  /**
+   * If set, sibling cache dirs whose names start with this prefix but differ from `name`
+   * are pruned. Used by version-namespaced binaries (e.g. prefix "bftunnel-" removes a
+   * stale "bftunnel-v0.1.0" dir once the pinned version moves to "bftunnel-v0.2.0"). Leave
+   * unset for providers with a stable, unversioned dir name (bore, ngrok), which have no
+   * siblings to clean up.
+   */
+  prunePrefix?: string
+}
+
+/**
+ * Remove cache dirs left behind by earlier pinned versions. Only entries under
+ * `userData/tunnels` that start with `prefix` and aren't the current `keep` dir are
+ * touched, so sibling providers' binaries are never affected. Best-effort: a dir that
+ * can't be removed (e.g. its binary is still running) is skipped and retried next run.
+ */
+function pruneStaleBinaries(prefix: string, keep: string): void {
+  const root = join(app.getPath('userData'), 'tunnels')
+  let entries: string[]
+  try {
+    entries = readdirSync(root)
+  } catch {
+    return // no tunnels dir yet, nothing to prune
+  }
+  for (const name of entries) {
+    if (name === keep || !name.startsWith(prefix)) continue
+    try {
+      rmSync(join(root, name), { recursive: true, force: true })
+    } catch {
+      /* still in use or locked — leave it for a later run */
+    }
+  }
 }
 
 /**
@@ -61,6 +93,11 @@ export async function ensureManagedBinary(
 ): Promise<string> {
   const dir = tunnelBinDir(spec.name)
   const exe = join(dir, process.platform === 'win32' ? `${spec.exe}.exe` : spec.exe)
+
+  // Drop any older version-namespaced dirs (runs whether or not we re-download, so an
+  // app update that already fetched the new binary still cleans up the prior version).
+  if (spec.prunePrefix) pruneStaleBinaries(spec.prunePrefix, spec.name)
+
   if (existsSync(exe)) return exe
 
   mkdirSync(dir, { recursive: true })

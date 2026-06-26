@@ -4,7 +4,7 @@ import { ensureManagedBinary } from './download'
 import type { TunnelHandle, TunnelProvider } from './types'
 
 // Pinned bftunnel release tag from github.com/birdflop/tunnel.
-const VERSION = 'v0.1.0'
+const VERSION = 'v0.2.1'
 // Public relay host. Override with BFTUNNEL_RELAY for local testing.
 const RELAY = process.env.BFTUNNEL_RELAY || 'tunnel.birdflop.com'
 
@@ -58,8 +58,8 @@ export const birdflopProvider: TunnelProvider = {
       ? process.env.BFTUNNEL_BIN
       : await ensureManagedBinary(
           // Version the cache dir so a new release pulls a fresh binary instead of
-          // reusing a stale one.
-          { name: `bftunnel-${VERSION}`, exe: 'bftunnel', ...assetUrl() },
+          // reusing a stale one; `prunePrefix` deletes the previous version's dir.
+          { name: `bftunnel-${VERSION}`, exe: 'bftunnel', prunePrefix: 'bftunnel-', ...assetUrl() },
           (message) => onUpdate({ provider: 'birdflop', state: 'starting', message })
         )
 
