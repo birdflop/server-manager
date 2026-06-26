@@ -250,7 +250,15 @@ export interface ServerDiagnosisEvent {
 }
 
 /** Services that can expose a local server to the public internet. */
-export type TunnelProviderId = 'bore' | 'ngrok'
+export type TunnelProviderId = 'birdflop' | 'bore' | 'ngrok'
+
+/** A persistent Birdflop tunnel identity (one per user, owns a subdomain). */
+export interface BirdflopTunnelIdentity {
+  /** Public subdomain, e.g. "a3k9zq" → a3k9zq.tunnel.birdflop.com. */
+  subdomain: string
+  /** Secret token proving ownership. Stored locally, never shared. */
+  token: string
+}
 
 /** Lifecycle state of a server's tunnel. */
 export type TunnelState = 'offline' | 'starting' | 'online' | 'error'
@@ -287,6 +295,11 @@ export interface TunnelConfig {
   provider: TunnelProviderId
   /** Start the tunnel automatically when the server becomes ready (wired in a later phase). */
   autoStart: boolean
+  /**
+   * Optional Birdflop sub-label, e.g. "survival" → survival.<you>.tunnel.birdflop.com.
+   * When unset, the server is exposed at the bare subdomain (distinguished by its port).
+   */
+  label?: string
 }
 
 /** A saved backup archive for an instance. */
@@ -400,6 +413,8 @@ export interface AppConfig {
   minimizeToTray: boolean
   /** ngrok auth token used by the tunnel/share feature (null = not set). */
   ngrokAuthToken: string | null
+  /** Birdflop tunnel identity (one per user); null until first enrolled. */
+  birdflopTunnel: BirdflopTunnelIdentity | null
   /** Reusable console command shortcuts, shown as buttons in every server's console. */
   consoleMacros: ConsoleMacro[]
   /** Saved server-creation presets offered in the create wizard. */
@@ -445,8 +460,10 @@ export interface BirdflopApi {
   getBuilds(type: ServerType, mc: string): Promise<Build[]>
 
   // Java
-  /** Detect Java runtimes installed on the machine (plus managed downloads). */
+  /** Detect Java runtimes installed on the machine (plus managed downloads). Cached per session. */
   listJava(): Promise<JavaInstall[]>
+  /** Force a fresh Java rescan, bypassing the cache. */
+  refreshJava(): Promise<JavaInstall[]>
   /** Recommended Java major version for a Minecraft version. */
   requiredJava(mc: string): Promise<number>
   /** Ensure a managed Temurin JRE for `major` exists (download if missing). */

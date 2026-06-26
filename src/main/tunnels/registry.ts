@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron'
 import type { TunnelInfo, TunnelProviderId } from '@shared/types'
 import { getTunnelProvider } from './index'
-import type { TunnelHandle } from './types'
+import type { TunnelHandle, TunnelStartOptions } from './types'
 
 interface RunningTunnel {
   handle: TunnelHandle | null
@@ -30,7 +30,8 @@ export function tunnelInfo(id: string): TunnelInfo {
 export async function startTunnel(
   id: string,
   providerId: TunnelProviderId,
-  port: number
+  port: number,
+  opts?: TunnelStartOptions
 ): Promise<void> {
   // Tear down any existing tunnel for this instance first.
   stopTunnel(id)
@@ -38,7 +39,7 @@ export async function startTunnel(
   const provider = getTunnelProvider(providerId)
   emit(id, { provider: providerId, state: 'starting' })
   try {
-    const handle = await provider.start(port, (info) => emit(id, info))
+    const handle = await provider.start(port, (info) => emit(id, info), opts)
     const entry = tunnels.get(id)
     if (entry) entry.handle = handle
     else tunnels.set(id, { handle, info: { provider: providerId, state: 'starting' } })

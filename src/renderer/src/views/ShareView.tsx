@@ -45,7 +45,7 @@ export function ShareView({
   const updateConfig = useApp((s) => s.updateConfig)
 
   const [providers, setProviders] = useState<TunnelProviderStatus[]>([])
-  const [provider, setProvider] = useState<TunnelProviderId>(instance.tunnel?.provider ?? 'bore')
+  const [provider, setProvider] = useState<TunnelProviderId>(instance.tunnel?.provider ?? 'birdflop')
   const [info, setInfo] = useState<TunnelInfo>({ provider: null, state: 'offline' })
   const [token, setToken] = useState(config?.ngrokAuthToken ?? '')
   const [savingToken, setSavingToken] = useState(false)

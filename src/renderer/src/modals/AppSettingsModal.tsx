@@ -54,10 +54,20 @@ export default function AppSettingsModal(): ReactElement {
   const chooseRoot = useApp((s) => s.chooseRoot)
   const openUpdateModal = useApp((s) => s.openUpdateModal)
   const [javas, setJavas] = useState<JavaInstall[]>([])
+  const [rescanningJava, setRescanningJava] = useState(false)
 
   useEffect(() => {
     void window.api.listJava().then(setJavas)
   }, [])
+
+  async function rescanJava(): Promise<void> {
+    setRescanningJava(true)
+    try {
+      setJavas(await window.api.refreshJava())
+    } finally {
+      setRescanningJava(false)
+    }
+  }
 
   if (!config) return <></>
 
@@ -101,18 +111,29 @@ export default function AppSettingsModal(): ReactElement {
             />
           </Row>
           <Row label="Default Java">
-            <select
-              value={config.defaultJavaPath ?? ''}
-              onChange={(e) => void updateConfig({ defaultJavaPath: e.target.value || null })}
-              className="max-w-[16rem] rounded-md bg-input px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent"
-            >
-              <option value="">Auto (match version)</option>
-              {javas.map((j) => (
-                <option key={j.path} value={j.path}>
-                  Java {j.major} ({j.version})
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                value={config.defaultJavaPath ?? ''}
+                onChange={(e) => void updateConfig({ defaultJavaPath: e.target.value || null })}
+                className="max-w-[16rem] rounded-md bg-input px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent"
+              >
+                <option value="">Auto (match version)</option>
+                {javas.map((j) => (
+                  <option key={j.path} value={j.path}>
+                    Java {j.major} ({j.version})
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void rescanJava()}
+                disabled={rescanningJava}
+                title="Rescan for Java installations"
+                className="shrink-0 rounded-md border border-border p-1.5 text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={rescanningJava ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </Row>
         </section>
 

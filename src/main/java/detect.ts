@@ -1,8 +1,11 @@
-import { spawnSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, statSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import { app } from 'electron'
 import type { JavaInstall } from '@shared/types'
+
+const execFileAsync = promisify(execFile)
 
 /** Path to the java executable inside a JDK/JRE home for the current platform. */
 function javaExe(home: string): string {
@@ -25,13 +28,19 @@ function parseVersion(output: string): { version: string; major: number } | null
   return { version: v, major }
 }
 
-/** Run `java -version` (writes to stderr) and parse the result. */
-function probe(javaPath: string): JavaInstall | null {
-  const res = spawnSync(javaPath, ['-version'], { encoding: 'utf8', timeout: 5000 })
-  if (res.error || res.status !== 0) return null
-  const parsed = parseVersion((res.stderr || '') + (res.stdout || ''))
-  if (!parsed) return null
-  return { path: javaPath, version: parsed.version, major: parsed.major }
+/** Run `java -version` (writes to stderr) and parse the result. Resolves null on any failure. */
+async function probe(javaPath: string): Promise<JavaInstall | null> {
+  try {
+    const { stdout, stderr } = await execFileAsync(javaPath, ['-version'], {
+      encoding: 'utf8',
+      timeout: 5000
+    })
+    const parsed = parseVersion((stderr || '') + (stdout || ''))
+    if (!parsed) return null
+    return { path: javaPath, version: parsed.version, major: parsed.major }
+  } catch {
+    return null
+  }
 }
 
 /** Candidate JDK/JRE home directories per platform. */
@@ -109,37 +118,83 @@ function candidateHomes(): string[] {
 /**
  * Detect Java runtimes on the machine plus any managed downloads.
  * Returns installs sorted newest major first, de-duplicated by real path.
+ *
+ * Each `java -version` boots a JVM (~100-500ms), so candidates are probed
+ * concurrently and off the main thread to avoid blocking the UI.
  */
-export function detectJava(): JavaInstall[] {
-  const found = new Map<string, JavaInstall>()
+export async function detectJava(): Promise<JavaInstall[]> {
   const rt = runtimesDir()
 
-  const consider = (javaPath: string): void => {
-    if (!existsSync(javaPath)) return
+  // Resolve candidate executables to real paths and de-dupe before probing.
+  const seen = new Set<string>()
+  const targets: string[] = []
+  for (const home of candidateHomes()) {
+    const javaPath = javaExe(home)
+    if (!existsSync(javaPath)) continue
     let real = javaPath
     try {
       real = realpathSync(javaPath)
     } catch {
       /* keep original */
     }
-    if (found.has(real)) return
-    const install = probe(real)
+    if (seen.has(real)) continue
+    seen.add(real)
+    targets.push(real)
+  }
+
+  // Probe every candidate plus whatever `java` is on PATH, all in parallel.
+  const [onPath, ...installs] = await Promise.all([probe('java'), ...targets.map(probe)])
+
+  const found = new Map<string, JavaInstall>()
+  targets.forEach((real, i) => {
+    const install = installs[i]
     if (install) {
       install.managed = real.startsWith(rt)
       found.set(real, install)
     }
-  }
+  })
 
-  for (const home of candidateHomes()) consider(javaExe(home))
-
-  // Also try whatever `java` is on PATH.
-  const onPath = spawnSync('java', ['-version'], { encoding: 'utf8', timeout: 5000 })
-  if (!onPath.error && onPath.status === 0) {
-    const parsed = parseVersion((onPath.stderr || '') + (onPath.stdout || ''))
-    if (parsed && ![...found.values()].some((i) => i.version === parsed.version && !i.managed)) {
-      found.set('__path__', { path: 'java', version: parsed.version, major: parsed.major })
-    }
+  // Add the PATH java only if it isn't already a non-managed install we found.
+  if (onPath && ![...found.values()].some((i) => i.version === onPath.version && !i.managed)) {
+    found.set('__path__', { path: 'java', version: onPath.version, major: onPath.major })
   }
 
   return [...found.values()].sort((a, b) => b.major - a.major)
+}
+
+// ---- Cached access ----------------------------------------------------------
+// Detection is stable within a session, so results are memoized. Callers that
+// need fresh data (after a managed download, or a user-triggered rescan) use
+// refreshJava() / invalidateJavaCache().
+
+let cache: JavaInstall[] | null = null
+let inflight: Promise<JavaInstall[]> | null = null
+
+/** Cached Java detection. Runs detectJava() once, then serves the memoized result. */
+export async function listJava(): Promise<JavaInstall[]> {
+  if (cache) return cache
+  if (!inflight) {
+    inflight = detectJava()
+      .then((r) => {
+        cache = r
+        return r
+      })
+      .finally(() => {
+        inflight = null
+      })
+  }
+  return inflight
+}
+
+/** Force a fresh detection, replacing the cache. Used by the manual refresh button. */
+export async function refreshJava(): Promise<JavaInstall[]> {
+  inflight = null
+  cache = await detectJava()
+  return cache
+}
+
+/** Drop the cache so the next listJava() re-detects (e.g. after downloading a runtime). */
+export function invalidateJavaCache(): void {
+  cache = null
+  inflight = null
 }

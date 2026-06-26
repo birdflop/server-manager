@@ -59,7 +59,7 @@ export async function runSelfTest(): Promise<void> {
   }
 
   console.log('\n=== DETECTED JAVA ===')
-  const javas = detectJava()
+  const javas = await detectJava()
   if (javas.length === 0) console.log('  (none found)')
   for (const j of javas) {
     console.log(`  Java ${j.major} (${j.version})${j.managed ? ' [managed]' : ''} -> ${j.path}`)
@@ -118,7 +118,7 @@ export async function runSelfTest(): Promise<void> {
       mkdirSync(dir, { recursive: true })
 
       const required = requiredJavaMajor(mc)
-      const javas = detectJava()
+      const javas = await detectJava()
       const java = javas.find((j) => j.major >= required) ?? javas[0]
       console.log(`  mc=${mc} build=${builds[0].id} java=${java?.major} required=${required}`)
 

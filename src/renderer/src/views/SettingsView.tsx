@@ -1,5 +1,15 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import { FolderOpen, Save, Trash2, AlertTriangle, Loader2, Copy, Eye, BookmarkPlus } from 'lucide-react'
+import {
+  FolderOpen,
+  Save,
+  Trash2,
+  AlertTriangle,
+  Loader2,
+  Copy,
+  Eye,
+  BookmarkPlus,
+  RefreshCw
+} from 'lucide-react'
 import type {
   Instance,
   InstanceTemplate,
@@ -45,6 +55,7 @@ export function SettingsView({
   const [javaPath, setJavaPath] = useState(instance.javaPath)
   const [jvmArgs, setJvmArgs] = useState(instance.jvmArgs.join(' '))
   const [javas, setJavas] = useState<JavaInstall[]>([])
+  const [rescanningJava, setRescanningJava] = useState(false)
   const [saving, setSaving] = useState(false)
   const cloneInstance = useApp((s) => s.cloneInstance)
   const updateConfig = useApp((s) => s.updateConfig)
@@ -104,6 +115,15 @@ export function SettingsView({
   useEffect(() => {
     void window.api.listJava().then(setJavas)
   }, [])
+
+  async function rescanJava(): Promise<void> {
+    setRescanningJava(true)
+    try {
+      setJavas(await window.api.refreshJava())
+    } finally {
+      setRescanningJava(false)
+    }
+  }
 
   const watchDirty = watchKey(buildWatch()) !== watchKey(initialWatch)
   const dirty =
@@ -231,18 +251,29 @@ export function SettingsView({
           </div>
 
           <Labeled label="Java installation">
-            <select
-              value={javaPath}
-              onChange={(e) => setJavaPath(e.target.value)}
-              className="w-full rounded-md bg-input px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
-            >
-              {javaOptions.map((j) => (
-                <option key={j.path} value={j.path}>
-                  {j.major ? `Java ${j.major} (${j.version})` : j.path}
-                  {j.managed ? ' • managed' : ''}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                value={javaPath}
+                onChange={(e) => setJavaPath(e.target.value)}
+                className="w-full rounded-md bg-input px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
+              >
+                {javaOptions.map((j) => (
+                  <option key={j.path} value={j.path}>
+                    {j.major ? `Java ${j.major} (${j.version})` : j.path}
+                    {j.managed ? ' • managed' : ''}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void rescanJava()}
+                disabled={rescanningJava}
+                title="Rescan for Java installations"
+                className="shrink-0 rounded-md border border-border p-2 text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+              >
+                <RefreshCw size={15} className={rescanningJava ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </Labeled>
 
           <Labeled label="Extra JVM arguments">

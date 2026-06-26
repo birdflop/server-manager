@@ -14,6 +14,7 @@ const DEFAULT_CONFIG: AppConfig = {
   autoRestartOnCrash: false,
   minimizeToTray: false,
   ngrokAuthToken: null,
+  birdflopTunnel: null,
   consoleMacros: [],
   templates: []
 }

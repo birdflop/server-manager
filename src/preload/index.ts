@@ -34,6 +34,7 @@ const api: BirdflopApi = {
   getBuilds: (type, mc) => ipcRenderer.invoke('software:builds', type, mc),
 
   listJava: () => ipcRenderer.invoke('java:list'),
+  refreshJava: () => ipcRenderer.invoke('java:refresh'),
   requiredJava: (mc) => ipcRenderer.invoke('java:requirement', mc),
   ensureJava: (major) => ipcRenderer.invoke('java:ensure', major),
   onJavaProgress: (cb) => {

@@ -34,7 +34,7 @@ import {
 } from './store/instances'
 import { listBackups, createBackup, restoreBackup, deleteBackup } from './servers/backups'
 import { getProvider } from './software'
-import { detectJava } from './java/detect'
+import { listJava, refreshJava, invalidateJavaCache } from './java/detect'
 import { ensureJava } from './java/adoptium'
 import { requiredJavaMajor } from './java/requirements'
 import {
@@ -60,6 +60,7 @@ import { isProxy, SERVER_TYPE_MAP } from '@shared/software'
 import * as servers from './servers/registry'
 import { startTunnel, stopTunnel, tunnelInfo } from './tunnels/registry'
 import { listProviderStatuses } from './tunnels/index'
+import type { TunnelStartOptions } from './tunnels/types'
 import type { ForwardingResult, ModpackImportPayload, TunnelProviderId } from '@shared/types'
 import {
   listContent,
@@ -158,11 +159,14 @@ export function registerIpc(): void {
   )
 
   // ---- Java ----
-  ipcMain.handle('java:list', () => detectJava())
+  ipcMain.handle('java:list', () => listJava())
+  ipcMain.handle('java:refresh', () => refreshJava())
   ipcMain.handle('java:requirement', (_e, mc: string) => requiredJavaMajor(mc))
-  ipcMain.handle('java:ensure', (e, major: number) =>
-    ensureJava(major, (p) => e.sender.send('java:progress', p))
-  )
+  ipcMain.handle('java:ensure', async (e, major: number) => {
+    const install = await ensureJava(major, (p) => e.sender.send('java:progress', p))
+    invalidateJavaCache() // a new managed runtime is now on disk
+    return install
+  })
 
   // ---- Instances ----
   ipcMain.handle('instances:get', (_e, id: string) => readInstance(requireRoot(), id))
@@ -438,8 +442,23 @@ export function registerIpc(): void {
     const inst = readInstance(root, id)
     if (!inst) throw new Error('Server not found')
     // Remember the chosen provider for this instance.
-    updateInstance(root, id, { tunnel: { provider, autoStart: inst.tunnel?.autoStart ?? false } })
-    return startTunnel(id, provider, inst.port)
+    updateInstance(root, id, {
+      tunnel: { provider, autoStart: inst.tunnel?.autoStart ?? false, label: inst.tunnel?.label }
+    })
+
+    // Birdflop needs the user's saved identity (or enrolls + persists a new one)
+    // and exposes the server on its own port under the user's subdomain.
+    const opts: TunnelStartOptions | undefined =
+      provider === 'birdflop'
+        ? {
+            publicPort: inst.port,
+            label: inst.tunnel?.label,
+            identity: getConfig().birdflopTunnel,
+            onIdentity: (identity) => setConfig({ birdflopTunnel: identity })
+          }
+        : undefined
+
+    return startTunnel(id, provider, inst.port, opts)
   })
   ipcMain.handle('tunnel:stop', (_e, id: string) => stopTunnel(id))
 
