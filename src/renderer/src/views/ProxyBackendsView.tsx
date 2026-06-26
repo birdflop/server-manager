@@ -1,6 +1,16 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import { Plus, Trash2, Save, Loader2, Network, Server, AlertTriangle } from 'lucide-react'
-import type { Instance, ProxyBackend, ServerStatus } from '@shared/types'
+import {
+  Plus,
+  Trash2,
+  Save,
+  Loader2,
+  Network,
+  Server,
+  AlertTriangle,
+  ShieldCheck,
+  Check
+} from 'lucide-react'
+import type { ForwardingResult, Instance, ProxyBackend, ServerStatus } from '@shared/types'
 import { isProxy } from '@shared/software'
 import { useApp } from '../store'
 import { StatusDot } from '../components/StatusDot'
@@ -18,6 +28,10 @@ export function ProxyBackendsView({
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [wiring, setWiring] = useState(false)
+  const [forwarding, setForwarding] = useState<ForwardingResult | null>(null)
+  const [forwardErr, setForwardErr] = useState<string | null>(null)
+  const isVelocity = instance.serverType === 'velocity'
 
   useEffect(() => {
     let live = true
@@ -67,6 +81,19 @@ export function ProxyBackendsView({
       setDirty(false)
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function setupForwarding(): Promise<void> {
+    setWiring(true)
+    setForwardErr(null)
+    setForwarding(null)
+    try {
+      setForwarding(await window.api.setupVelocityForwarding(instance.id))
+    } catch (e) {
+      setForwardErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setWiring(false)
     }
   }
 
@@ -178,6 +205,62 @@ export function ProxyBackendsView({
           <Plus size={13} /> Add custom address
         </button>
       </section>
+
+      {/* Velocity modern forwarding */}
+      {isVelocity && (
+        <section className="rounded-brand border border-border bg-surface p-4">
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <ShieldCheck size={15} /> Modern forwarding
+          </h3>
+          <p className="mt-0.5 text-xs text-fg-muted">
+            Generates a shared secret, switches this proxy to <code>modern</code> forwarding, and wires
+            each managed Paper/Folia/Purpur backend (sets <code>online-mode=false</code> + the secret in
+            <code> paper-global.yml</code>). Restart the proxy and backends afterwards.
+          </p>
+
+          <button
+            onClick={() => void setupForwarding()}
+            disabled={wiring || dirty || backends.length === 0}
+            title={dirty ? 'Save backends first' : undefined}
+            className="mt-3 inline-flex items-center gap-2 rounded-brand bg-accent-2 px-3 py-1.5 text-sm font-medium text-white transition hover:brightness-110 disabled:opacity-50"
+          >
+            {wiring ? <Loader2 className="animate-spin" size={15} /> : <ShieldCheck size={15} />}
+            Set up modern forwarding
+          </button>
+          {dirty && (
+            <span className="ml-2 text-xs text-amber-400">Save your backend changes first.</span>
+          )}
+
+          {forwardErr && (
+            <div className="mt-3 flex items-center gap-2 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              <AlertTriangle size={14} /> {forwardErr}
+            </div>
+          )}
+
+          {forwarding && (
+            <div className="mt-3 space-y-1.5 text-xs">
+              {forwarding.wired.map((n) => (
+                <div key={n} className="flex items-center gap-2 text-accent">
+                  <Check size={13} /> Wired <span className="font-medium">{n}</span>
+                </div>
+              ))}
+              {forwarding.skipped.map((s) => (
+                <div key={s.name} className="flex items-start gap-2 text-amber-300">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                  <span>
+                    Skipped <span className="font-medium">{s.name}</span> — {s.reason}
+                  </span>
+                </div>
+              ))}
+              {forwarding.wired.length === 0 && forwarding.skipped.length === 0 && (
+                <div className="text-fg-muted">
+                  Secret written. Add managed backends to wire them automatically.
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   )
 }

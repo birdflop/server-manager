@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react'
-import { Loader2, ChevronLeft, Check, AlertCircle, Server } from 'lucide-react'
-import type { InstallProgress, ServerType } from '@shared/types'
+import { Loader2, ChevronLeft, Check, AlertCircle, Server, LayoutTemplate } from 'lucide-react'
+import type { InstallProgress, InstanceTemplate, ServerType } from '@shared/types'
 import { SERVER_TYPE_MAP, isProxy } from '@shared/software'
 import { Modal } from '../../components/Modal'
 import { useApp } from '../../store'
@@ -21,6 +21,7 @@ export default function CreateInstanceWizard(): ReactElement {
   const openTab = useApp((s) => s.openTab)
   const refreshIndex = useApp((s) => s.refreshIndex)
   const defaults = useApp((s) => s.config)
+  const templates = useApp((s) => s.config?.templates ?? [])
 
   const [step, setStep] = useState<Step>('software')
   const [serverType, setServerType] = useState<ServerType>()
@@ -47,6 +48,20 @@ export default function CreateInstanceWizard(): ReactElement {
       update({ name: `${SERVER_TYPE_MAP[serverType].label} ${mcVersion}` })
     }
     setStep(next)
+  }
+
+  /** Pre-fill the whole wizard from a saved template and jump straight to configure. */
+  function applyTemplate(t: InstanceTemplate): void {
+    setServerType(t.serverType)
+    setMcVersion(t.mcVersion)
+    setBuild(t.build)
+    setForm((f) => ({
+      ...f,
+      ramMB: t.ramMB,
+      jvmArgs: t.jvmArgs.join(' '),
+      name: f.name || `${SERVER_TYPE_MAP[t.serverType].label} ${t.mcVersion}`
+    }))
+    setStep('configure')
   }
 
   const stepIndex = STEP_ORDER.indexOf(step)
@@ -144,6 +159,27 @@ export default function CreateInstanceWizard(): ReactElement {
         <CreatingView progress={progress} error={error} />
       ) : (
         <>
+          {step === 'software' && templates.length > 0 && (
+            <div className="mb-5">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                Start from a template
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {templates.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => applyTemplate(t)}
+                    className="inline-flex items-center gap-1.5 rounded-brand border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+                  >
+                    <LayoutTemplate size={13} /> {t.name}
+                    <span className="text-fg-muted/60">
+                      · {SERVER_TYPE_MAP[t.serverType].label} {t.mcVersion}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
           {step === 'software' && (
             <StepSoftware
               value={serverType}

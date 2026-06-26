@@ -137,6 +137,42 @@ function isZip(path: string): boolean {
   }
 }
 
+/**
+ * Download one Modrinth project's primary file into `dir`, recording provenance in `meta`
+ * (mutated in place, not flushed). Returns the saved filename + its required dependency
+ * project ids. Skips the download if a file with that name already exists.
+ */
+async function installModrinthProject(
+  inst: Instance,
+  dir: string,
+  projectId: string,
+  meta: ContentMetaMap
+): Promise<{ filename: string; requiredDeps: string[] }> {
+  const dl = await resolveModrinthDownload(projectId, MODRINTH_LOADERS[inst.serverType], inst.mcVersion)
+  const filename = dl.filename.endsWith('.jar') ? dl.filename : `${dl.filename}.jar`
+  const dest = join(dir, filename)
+  if (!existsSync(dest)) {
+    await downloadFile(dl.url, dest)
+    if (!isZip(dest)) {
+      try {
+        rmSync(dest)
+      } catch {
+        /* ignore */
+      }
+      throw new Error("Couldn't fetch a jar directly (it may be hosted off-site) — use “Open page”.")
+    }
+  }
+  meta[filename] = {
+    source: 'modrinth',
+    projectId,
+    versionId: dl.versionId,
+    versionNumber: dl.versionNumber
+  }
+  return { filename, requiredDeps: dl.requiredDeps }
+}
+
+const MAX_DEP_DEPTH = 5
+
 export async function contentInstall(
   root: string,
   id: string,
@@ -146,10 +182,41 @@ export async function contentInstall(
   const inst = readInstance(root, id)
   const dir = contentDir(root, id)
   if (!inst || !dir) throw new Error('Server has no content folder')
-
-  const dl = await resolveDownload(inst, source, projectId)
-
   mkdirSync(dir, { recursive: true })
+  const meta = readMeta(dir)
+
+  if (source === 'modrinth') {
+    // Projects already installed (any file with that provenance) — don't re-pull as a dependency.
+    const installedProjects = new Set<string>()
+    for (const m of Object.values(meta)) if (m.source === 'modrinth') installedProjects.add(m.projectId)
+
+    // Install the chosen project, then breadth-first install its required dependencies.
+    const root0 = await installModrinthProject(inst, dir, projectId, meta)
+    installedProjects.add(projectId)
+
+    const seen = new Set<string>([projectId])
+    let frontier = root0.requiredDeps
+    for (let depth = 0; frontier.length && depth < MAX_DEP_DEPTH; depth++) {
+      const next: string[] = []
+      for (const dep of frontier) {
+        if (seen.has(dep) || installedProjects.has(dep)) continue
+        seen.add(dep)
+        try {
+          const r = await installModrinthProject(inst, dir, dep, meta)
+          installedProjects.add(dep)
+          next.push(...r.requiredDeps)
+        } catch {
+          /* a dependency without a build for this loader/MC — skip it rather than failing the install */
+        }
+      }
+      frontier = next
+    }
+    writeMeta(dir, meta)
+    return listContent(root, id)
+  }
+
+  // Hangar / SpigotMC: single-file install (no dependency graph exposed).
+  const dl = await resolveDownload(inst, source, projectId)
   const filename = dl.filename.endsWith('.jar') ? dl.filename : `${dl.filename}.jar`
   const dest = join(dir, filename)
   await downloadFile(dl.url, dest)
@@ -161,14 +228,7 @@ export async function contentInstall(
     }
     throw new Error("Couldn't fetch a jar directly (it may be hosted off-site) — use “Open page”.")
   }
-  // Record provenance so we can check for updates later.
-  const meta = readMeta(dir)
-  meta[filename] = {
-    source,
-    projectId,
-    versionId: dl.versionId,
-    versionNumber: dl.versionNumber
-  }
+  meta[filename] = { source, projectId, versionId: dl.versionId, versionNumber: dl.versionNumber }
   writeMeta(dir, meta)
   return listContent(root, id)
 }

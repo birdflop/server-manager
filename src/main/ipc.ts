@@ -45,18 +45,22 @@ import {
   applyUpdateChannel
 } from './updater'
 import { installServer } from './servers/install'
+import { importModpack } from './modpack'
 import {
   writeEula,
   setServerProperties,
   setProxyPort,
   writeProxyBackends,
-  proxyServerName
+  proxyServerName,
+  ensureVelocityForwarding,
+  enablePaperVelocity,
+  supportsModernForwarding
 } from './servers/properties'
-import { isProxy } from '@shared/software'
+import { isProxy, SERVER_TYPE_MAP } from '@shared/software'
 import * as servers from './servers/registry'
 import { startTunnel, stopTunnel, tunnelInfo } from './tunnels/registry'
 import { listProviderStatuses } from './tunnels/index'
-import type { TunnelProviderId } from '@shared/types'
+import type { ForwardingResult, ModpackImportPayload, TunnelProviderId } from '@shared/types'
 import {
   listContent,
   addContentFiles,
@@ -276,10 +280,62 @@ export function registerIpc(): void {
     return clean
   })
 
+  ipcMain.handle('proxy:setupForwarding', (_e, id: string): ForwardingResult => {
+    const root = requireRoot()
+    const proxy = readInstance(root, id)
+    if (!proxy) throw new Error('Server not found')
+    if (proxy.serverType !== 'velocity') {
+      throw new Error('Modern forwarding setup is only available for Velocity proxies.')
+    }
+    const proxyDir = instanceDir(root, id)
+    // Ensure velocity.toml exists before editing it.
+    setProxyPort(proxyDir, proxy.serverType, proxy.port)
+    const secret = ensureVelocityForwarding(proxyDir)
+
+    const wired: string[] = []
+    const skipped: { name: string; reason: string }[] = []
+    for (const backend of proxy.backends ?? []) {
+      if (!backend.instanceId) {
+        skipped.push({ name: backend.name, reason: 'External address — wire its config manually.' })
+        continue
+      }
+      const target = readInstance(root, backend.instanceId)
+      if (!target) {
+        skipped.push({ name: backend.name, reason: 'Managed server no longer exists.' })
+        continue
+      }
+      if (!supportsModernForwarding(target.serverType)) {
+        skipped.push({
+          name: backend.name,
+          reason: `${SERVER_TYPE_MAP[target.serverType].label} needs a forwarding mod (e.g. FabricProxy-Lite).`
+        })
+        continue
+      }
+      enablePaperVelocity(instanceDir(root, backend.instanceId), secret)
+      wired.push(backend.name)
+    }
+    return { secret, wired, skipped }
+  })
+
   ipcMain.handle('instances:import', (_e, payload: ImportInstancePayload) =>
     importInstance(requireRoot(), payload)
   )
   ipcMain.handle('instances:listFolderJars', (_e, path: string) => listFolderJars(path))
+
+  ipcMain.handle('dialog:pickModpack', async (): Promise<string | null> => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Choose a Modrinth modpack',
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [{ name: 'Modrinth modpack', extensions: ['mrpack'] }]
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+  })
+
+  ipcMain.handle('instances:importModpack', (e, payload: ModpackImportPayload) =>
+    importModpack(requireRoot(), payload, (p) => e.sender.send('instances:createProgress', p))
+  )
 
   // ---- Backups ----
   ipcMain.handle('backups:list', (_e, id: string) => listBackups(requireRoot(), id))

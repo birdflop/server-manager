@@ -9,7 +9,8 @@ import {
   ExternalLink,
   AlertCircle,
   RefreshCw,
-  ArrowUpCircle
+  ArrowUpCircle,
+  Check
 } from 'lucide-react'
 import type { ContentFile, ContentSearchHit, ContentSource, ContentUpdate } from '@shared/types'
 
@@ -47,6 +48,7 @@ export function ContentView({
   const [searching, setSearching] = useState(false)
   const [installing, setInstalling] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [note, setNote] = useState<string | null>(null)
 
   async function refresh(): Promise<void> {
     setFiles(await window.api.listContent(instanceId))
@@ -59,6 +61,7 @@ export function ContentView({
     setQuery('')
     setSource(sources[0] ?? 'modrinth')
     setError(null)
+    setNote(null)
     setUpdates(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instanceId])
@@ -124,8 +127,19 @@ export function ContentView({
     const key = `${hit.source}:${hit.id}`
     setInstalling(key)
     setError(null)
+    setNote(null)
+    const before = new Set(files.map((f) => f.name))
     try {
-      setFiles(await window.api.installContent(instanceId, hit.source, hit.id))
+      const result = await window.api.installContent(instanceId, hit.source, hit.id)
+      setFiles(result)
+      // Modrinth pulls in required dependencies — let the user know what else landed.
+      const added = result.filter((f) => !before.has(f.name)).length
+      const deps = added - 1
+      setNote(
+        deps > 0
+          ? `Installed ${hit.title} and ${deps} dependenc${deps === 1 ? 'y' : 'ies'}.`
+          : `Installed ${hit.title}.`
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -300,6 +314,12 @@ export function ContentView({
           {error && (
             <div className="mb-2 flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
               <AlertCircle size={14} /> {error}
+            </div>
+          )}
+
+          {note && (
+            <div className="mb-2 flex items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-accent">
+              <Check size={14} /> {note}
             </div>
           )}
 

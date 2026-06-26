@@ -1,6 +1,13 @@
 import { useEffect, useState, type ReactElement } from 'react'
-import { FolderOpen, Save, Trash2, AlertTriangle, Loader2, Copy, Eye } from 'lucide-react'
-import type { Instance, JavaInstall, ServerStatus, WatchAction, WatchConfig } from '@shared/types'
+import { FolderOpen, Save, Trash2, AlertTriangle, Loader2, Copy, Eye, BookmarkPlus } from 'lucide-react'
+import type {
+  Instance,
+  InstanceTemplate,
+  JavaInstall,
+  ServerStatus,
+  WatchAction,
+  WatchConfig
+} from '@shared/types'
 import { DEFAULT_WATCH } from '@shared/types'
 import { SERVER_TYPE_MAP, contentDirOf, contentKindOf } from '@shared/software'
 import { useApp } from '../store'
@@ -40,6 +47,24 @@ export function SettingsView({
   const [javas, setJavas] = useState<JavaInstall[]>([])
   const [saving, setSaving] = useState(false)
   const cloneInstance = useApp((s) => s.cloneInstance)
+  const updateConfig = useApp((s) => s.updateConfig)
+  const templates = useApp((s) => s.config?.templates ?? [])
+  const [savedTpl, setSavedTpl] = useState(false)
+
+  async function saveAsTemplate(): Promise<void> {
+    const tpl: InstanceTemplate = {
+      id: crypto.randomUUID(),
+      name: instance.name,
+      serverType: instance.serverType,
+      mcVersion: instance.mcVersion,
+      build: instance.build,
+      ramMB: instance.ramMB,
+      jvmArgs: instance.jvmArgs
+    }
+    await updateConfig({ templates: [...templates, tpl] })
+    setSavedTpl(true)
+    setTimeout(() => setSavedTpl(false), 2000)
+  }
 
   // ---- File watcher state ----
   const initialWatch = instance.watch ?? DEFAULT_WATCH
@@ -123,13 +148,22 @@ export function SettingsView({
       <section className="rounded-brand border border-border bg-surface p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-semibold">Server information</h2>
-          <button
-            onClick={() => void cloneInstance(instance.id)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
-            title="Duplicate this server"
-          >
-            <Copy size={13} /> Duplicate
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => void saveAsTemplate()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+              title="Save these settings as a reusable template"
+            >
+              <BookmarkPlus size={13} /> {savedTpl ? 'Saved!' : 'Save as template'}
+            </button>
+            <button
+              onClick={() => void cloneInstance(instance.id)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+              title="Duplicate this server"
+            >
+              <Copy size={13} /> Duplicate
+            </button>
+          </div>
         </div>
         <dl className="grid grid-cols-[120px_1fr] gap-y-2 text-sm">
           <dt className="text-fg-muted">Software</dt>

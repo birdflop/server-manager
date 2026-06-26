@@ -22,6 +22,25 @@ export type ContentKind = 'plugins' | 'mods' | 'none'
 
 export type ThemeName = 'dark' | 'light'
 
+/** A reusable console command shortcut, shown as a one-click button in the console. */
+export interface ConsoleMacro {
+  /** Button text (e.g. "Save"). */
+  label: string
+  /** Command sent to the server when clicked (e.g. "save-all"). */
+  command: string
+}
+
+/** A saved server-creation preset that pre-fills the create wizard. */
+export interface InstanceTemplate {
+  id: string
+  name: string
+  serverType: ServerType
+  mcVersion: string
+  build: string
+  ramMB: number
+  jvmArgs: string[]
+}
+
 /** Lightweight entry stored in the manager index for the sidebar. */
 export interface InstanceMeta {
   id: string
@@ -292,6 +311,27 @@ export interface ImportInstancePayload {
   groupId: string | null
 }
 
+/** Payload for importing a Modrinth modpack (.mrpack) as a new instance. */
+export interface ModpackImportPayload {
+  /** Absolute path to the .mrpack file on disk. */
+  mrpackPath: string
+  name: string
+  ramMB: number
+  javaPath: string
+  eulaAccepted: boolean
+  groupId: string | null
+}
+
+/** Outcome of wiring Velocity modern forwarding across a proxy's backends. */
+export interface ForwardingResult {
+  /** The shared forwarding secret that was written. */
+  secret: string
+  /** Managed backends that were configured for modern forwarding. */
+  wired: string[]
+  /** Backends that couldn't be auto-wired, with a reason. */
+  skipped: { name: string; reason: string }[]
+}
+
 /** A selectable build/version of a given server software. */
 export interface Build {
   id: string
@@ -360,6 +400,10 @@ export interface AppConfig {
   minimizeToTray: boolean
   /** ngrok auth token used by the tunnel/share feature (null = not set). */
   ngrokAuthToken: string | null
+  /** Reusable console command shortcuts, shown as buttons in every server's console. */
+  consoleMacros: ConsoleMacro[]
+  /** Saved server-creation presets offered in the create wizard. */
+  templates: InstanceTemplate[]
 }
 
 /**
@@ -440,6 +484,12 @@ export interface BirdflopApi {
   ): Promise<{ instance: Instance; index: ManagerIndex }>
   /** List .jar files in a folder (for the import launch-jar picker). */
   listFolderJars(path: string): Promise<string[]>
+  /** Open a native picker for a .mrpack modpack; returns the chosen path or null. */
+  pickModpack(): Promise<string | null>
+  /** Import a Modrinth modpack (.mrpack) as a new managed instance. Reports via onInstallProgress. */
+  importModpack(payload: ModpackImportPayload): Promise<{ instance: Instance; index: ManagerIndex }>
+  /** Wire Velocity modern forwarding across a proxy's managed backends. */
+  setupVelocityForwarding(id: string): Promise<ForwardingResult>
 
   // Backups
   listBackups(id: string): Promise<BackupInfo[]>

@@ -1,6 +1,14 @@
 import { join } from 'node:path'
-import { writeFileSync, readFileSync, existsSync } from 'node:fs'
+import { writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { load as yamlLoad, dump as yamlDump } from 'js-yaml'
 import type { ProxyBackend, ServerType } from '@shared/types'
+
+type Dict = Record<string, unknown>
+
+function asDict(value: unknown): Dict {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Dict) : {}
+}
 
 export function writeEula(dir: string, accepted: boolean): void {
   writeFileSync(join(dir, 'eula.txt'), `eula=${accepted ? 'true' : 'false'}\n`, 'utf-8')
@@ -190,4 +198,66 @@ export function writeProxyBackends(
   const prioRe = /^[ \t]*priorities:.*\n(?:[ \t]*-.*\n)*/m
   if (prioRe.test(content)) content = content.replace(prioRe, bungeePrioritiesBlock(backends))
   writeFileSync(path, content, 'utf-8')
+}
+
+/**
+ * Switch a Velocity proxy to modern player-info forwarding: ensure a shared secret file,
+ * set the forwarding mode + secret-file path in velocity.toml, and return the secret so
+ * backends can be wired to match. Assumes velocity.toml exists (caller ensures via setProxyPort).
+ */
+export function ensureVelocityForwarding(dir: string): string {
+  const secretPath = join(dir, 'forwarding.secret')
+  let secret = ''
+  if (existsSync(secretPath)) secret = readFileSync(secretPath, 'utf-8').trim()
+  if (!secret) secret = randomBytes(12).toString('hex')
+  writeFileSync(secretPath, secret, 'utf-8')
+
+  const tomlPath = join(dir, 'velocity.toml')
+  let toml = existsSync(tomlPath) ? readFileSync(tomlPath, 'utf-8') : velocityToml(25577)
+  toml = /^\s*player-info-forwarding-mode\s*=/m.test(toml)
+    ? toml.replace(/^(\s*player-info-forwarding-mode\s*=\s*).*$/m, '$1"modern"')
+    : `player-info-forwarding-mode = "modern"\n${toml}`
+  if (/^\s*forwarding-secret-file\s*=/m.test(toml)) {
+    toml = toml.replace(/^(\s*forwarding-secret-file\s*=\s*).*$/m, '$1"forwarding.secret"')
+  } else {
+    toml = toml.replace(
+      /^(\s*player-info-forwarding-mode\s*=.*)$/m,
+      '$1\nforwarding-secret-file = "forwarding.secret"'
+    )
+  }
+  writeFileSync(tomlPath, toml, 'utf-8')
+  return secret
+}
+
+/**
+ * Wire a Paper-family backend (Paper/Folia/Purpur) for Velocity modern forwarding: enable the
+ * velocity proxy section in config/paper-global.yml with the shared secret, and force the
+ * server itself to offline mode (the proxy authenticates players). Paper merges any missing
+ * keys on next start, so writing a partial file is safe even before the server's first run.
+ */
+export function enablePaperVelocity(dir: string, secret: string): void {
+  const configDir = join(dir, 'config')
+  mkdirSync(configDir, { recursive: true })
+  const path = join(configDir, 'paper-global.yml')
+
+  let doc: Dict = {}
+  if (existsSync(path)) {
+    try {
+      doc = asDict(yamlLoad(readFileSync(path, 'utf-8')))
+    } catch {
+      doc = {}
+    }
+  }
+  const proxies = asDict(doc.proxies)
+  proxies.velocity = { ...asDict(proxies.velocity), enabled: true, 'online-mode': false, secret }
+  doc.proxies = proxies
+  writeFileSync(path, yamlDump(doc, { lineWidth: -1 }), 'utf-8')
+
+  // The backend must be offline-mode so the proxy handles authentication.
+  setServerProperties(dir, { 'online-mode': 'false' })
+}
+
+/** Server types that support Velocity modern forwarding natively (no extra mod). */
+export function supportsModernForwarding(type: ServerType): boolean {
+  return type === 'paper' || type === 'folia' || type === 'purpur'
 }

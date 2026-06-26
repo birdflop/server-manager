@@ -3,7 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
-import { Send, Eraser, Search, ChevronUp, ChevronDown, X, Download, AlertTriangle } from 'lucide-react'
+import { Send, Eraser, Search, ChevronUp, ChevronDown, X, Download, AlertTriangle, Zap } from 'lucide-react'
 import { useApp } from '../store'
 
 const SEARCH_DECORATIONS = {
@@ -37,6 +37,7 @@ export function ConsoleView({ instanceId }: { instanceId: string }): ReactElemen
   const searchInputRef = useRef<HTMLInputElement>(null)
   const status = useApp((s) => s.status[instanceId] ?? 'stopped')
   const theme = useApp((s) => s.config?.theme ?? 'dark')
+  const macros = useApp((s) => s.config?.consoleMacros ?? [])
   const [cmd, setCmd] = useState('')
   const [history, setHistory] = useState<string[]>([])
   const [histIdx, setHistIdx] = useState(-1)
@@ -262,6 +263,21 @@ export function ConsoleView({ instanceId }: { instanceId: string }): ReactElemen
       >
         <div ref={containerRef} className="h-full w-full" />
       </div>
+      {macros.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {macros.map((m, i) => (
+            <button
+              key={`${m.label}-${i}`}
+              onClick={() => void window.api.sendCommand(instanceId, m.command)}
+              disabled={disabled}
+              title={m.command}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-40"
+            >
+              <Zap size={12} /> {m.label}
+            </button>
+          ))}
+        </div>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault()

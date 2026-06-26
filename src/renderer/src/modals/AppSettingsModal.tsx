@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
-import { FolderOpen, RefreshCw, ExternalLink, Code2 } from 'lucide-react'
-import type { JavaInstall } from '@shared/types'
+import { FolderOpen, RefreshCw, ExternalLink, Code2, Plus, Trash2, Zap, LayoutTemplate } from 'lucide-react'
+import type { ConsoleMacro, JavaInstall } from '@shared/types'
+import { SERVER_TYPE_MAP } from '@shared/software'
 import { Modal } from '../components/Modal'
 import { useApp } from '../store'
 
@@ -169,6 +170,10 @@ export default function AppSettingsModal(): ReactElement {
           </Row>
         </section>
 
+        <MacrosSection />
+
+        <TemplatesSection />
+
         <section>
           <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">
             Storage
@@ -213,5 +218,101 @@ export default function AppSettingsModal(): ReactElement {
         </section>
       </div>
     </Modal>
+  )
+}
+
+/** Edit the reusable console command shortcuts shown in every server's console. */
+function MacrosSection(): ReactElement {
+  const initial = useApp((s) => s.config?.consoleMacros ?? [])
+  const updateConfig = useApp((s) => s.updateConfig)
+  const [macros, setMacros] = useState<ConsoleMacro[]>(initial)
+
+  function persist(next: ConsoleMacro[]): void {
+    setMacros(next)
+    void updateConfig({ consoleMacros: next })
+  }
+
+  return (
+    <section>
+      <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+        <Zap size={12} /> Console macros
+      </h3>
+      <p className="mb-2 text-xs text-fg-muted">
+        One-click command buttons shown above every server&apos;s console input.
+      </p>
+      <div className="space-y-2">
+        {macros.map((m, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              value={m.label}
+              placeholder="Label"
+              onChange={(e) => setMacros((arr) => arr.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+              onBlur={() => persist(macros)}
+              className="w-32 rounded-md bg-input px-2 py-1.5 text-sm outline-none focus:ring-1 focus:ring-accent"
+            />
+            <input
+              value={m.command}
+              placeholder="Command (e.g. save-all)"
+              onChange={(e) =>
+                setMacros((arr) => arr.map((x, j) => (j === i ? { ...x, command: e.target.value } : x)))
+              }
+              onBlur={() => persist(macros)}
+              className="flex-1 rounded-md bg-input px-2 py-1.5 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
+            />
+            <button
+              onClick={() => persist(macros.filter((_, j) => j !== i))}
+              className="rounded p-1.5 text-fg-muted transition hover:text-red-400"
+              title="Remove"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={() => persist([...macros, { label: '', command: '' }])}
+        className="mt-2 inline-flex items-center gap-1.5 rounded-brand border border-dashed border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+      >
+        <Plus size={13} /> Add macro
+      </button>
+    </section>
+  )
+}
+
+/** Manage saved server-creation templates. */
+function TemplatesSection(): ReactElement {
+  const templates = useApp((s) => s.config?.templates ?? [])
+  const updateConfig = useApp((s) => s.updateConfig)
+
+  return (
+    <section>
+      <h3 className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+        <LayoutTemplate size={12} /> Templates
+      </h3>
+      {templates.length === 0 ? (
+        <p className="text-xs text-fg-muted">
+          Save a server&apos;s settings as a template from its Settings tab to reuse them in the
+          create wizard.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {templates.map((t) => (
+            <div key={t.id} className="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">{t.name}</span>
+              <span className="shrink-0 text-xs text-fg-muted">
+                {SERVER_TYPE_MAP[t.serverType].label} {t.mcVersion}
+              </span>
+              <button
+                onClick={() => void updateConfig({ templates: templates.filter((x) => x.id !== t.id) })}
+                className="rounded p-1 text-fg-muted transition hover:text-red-400"
+                title="Delete template"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
