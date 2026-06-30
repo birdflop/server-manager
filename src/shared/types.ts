@@ -80,6 +80,8 @@ export interface Instance {
   watch?: WatchConfig
   /** Tunnel/share preferences (undefined = never configured). */
   tunnel?: TunnelConfig
+  /** Remote JVM debugging (JDWP) config (undefined = disabled). */
+  debug?: DebugConfig
 }
 
 /** What the file watcher does when a watched path changes. */
@@ -114,6 +116,21 @@ export const DEFAULT_WATCH: WatchConfig = {
   action: 'restart',
   debounceMs: 1000
 }
+
+/**
+ * Remote JVM debugging (JDWP) config for a server. When enabled, the server is launched with a
+ * `-agentlib:jdwp` agent so an IDE (IntelliJ / VS Code) can attach to `localhost:<port>`.
+ */
+export interface DebugConfig {
+  enabled: boolean
+  /** TCP port the JDWP agent listens on for debugger connections. */
+  port: number
+  /** Suspend the JVM at startup until a debugger attaches (for debugging early init). */
+  suspend: boolean
+}
+
+/** Default remote-debug config for a freshly-enabled debugger. */
+export const DEFAULT_DEBUG: DebugConfig = { enabled: false, port: 5005, suspend: false }
 
 /** A backend server a proxy forwards players to. */
 export interface ProxyBackend {
@@ -483,7 +500,9 @@ export interface BirdflopApi {
   /** Apply editable settings (name, port, ram, java, jvm args). */
   updateInstance(
     id: string,
-    patch: Partial<Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs' | 'watch' | 'tunnel'>>
+    patch: Partial<
+      Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs' | 'watch' | 'tunnel' | 'debug'>
+    >
   ): Promise<{ instance: Instance; index: ManagerIndex } | null>
   /** Delete a server (folder + index entry). */
   deleteInstance(id: string): Promise<ManagerIndex>
@@ -559,6 +578,12 @@ export interface BirdflopApi {
   detectEditors(): Promise<DetectedEditor[]>
   /** Open an instance's folder (or a file within it) in a detected external editor. */
   openInEditor(id: string, editorId: string, relPath?: string): Promise<void>
+
+  // server.properties (visual editor)
+  /** Read a server's server.properties as a key→value map ({} if it doesn't exist yet). */
+  getServerProperties(id: string): Promise<Record<string, string>>
+  /** Merge + persist keys into a server's server.properties; returns the updated map. */
+  setServerProperties(id: string, kv: Record<string, string>): Promise<Record<string, string>>
 
   /** Clear a server's buffered console scrollback. */
   clearServerBuffer(id: string): Promise<void>

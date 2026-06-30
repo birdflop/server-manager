@@ -5,6 +5,7 @@ import type { Instance, ServerStatus } from '@shared/types'
 import { readyPatternFor, stopCommandFor } from '@shared/software'
 import { buildLaunch } from './launch'
 import { diagnose } from './diagnose'
+import { colorize, flushColor, type ColorState } from './colorize'
 import { syncWatch, stopWatch, stopAllWatch } from './watcher'
 import { getConfig } from '../config'
 
@@ -16,6 +17,8 @@ interface Running {
   dir: string
   /** True when the user explicitly stopped/restarted (so close isn't treated as a crash). */
   userStopped: boolean
+  /** Per-line colorizer state (holds a trailing partial line between chunks). */
+  color: ColorState
 }
 
 const running = new Map<string, Running>()
@@ -125,14 +128,15 @@ export function start(instance: Instance, dir: string): void {
     running.set(instance.id, {
       child: prev?.child as ChildProcessWithoutNullStreams,
       status: 'stopped',
-      buffer: (prev?.buffer ?? '') + `\n[launch error] ${(err as Error).message}\n`,
+      buffer: (prev?.buffer ?? '') + `\n\x1b[91m[launch error] ${(err as Error).message}\x1b[0m\n`,
       instance,
       dir,
-      userStopped: true
+      userStopped: true,
+      color: { pending: '' }
     })
     broadcast('server:output', {
       id: instance.id,
-      chunk: `\n[launch error] ${(err as Error).message}\n`
+      chunk: `\n\x1b[91m[launch error] ${(err as Error).message}\x1b[0m\n`
     })
     setStatus(instance.id, 'stopped')
     return
@@ -145,7 +149,8 @@ export function start(instance: Instance, dir: string): void {
     buffer: running.get(instance.id)?.buffer ?? '',
     instance,
     dir,
-    userStopped: false
+    userStopped: false,
+    color: { pending: '' }
   }
   running.set(instance.id, r)
   setStatus(instance.id, 'starting')
@@ -155,7 +160,8 @@ export function start(instance: Instance, dir: string): void {
   const readyPattern = readyPatternFor(instance.serverType)
   const onData = (d: Buffer): void => {
     const text = d.toString()
-    appendOutput(instance.id, text)
+    const colored = colorize(r.color, text)
+    if (colored) appendOutput(instance.id, colored)
     if (r.status === 'starting' && readyPattern.test(text)) {
       setStatus(instance.id, 'running')
       notify(instance.name, 'Server is ready.')
@@ -164,11 +170,15 @@ export function start(instance: Instance, dir: string): void {
   child.stdout.on('data', onData)
   child.stderr.on('data', onData)
   child.on('error', (err) => {
-    appendOutput(instance.id, `\n[process error] ${err.message}\n`)
+    appendOutput(instance.id, `\n\x1b[91m[process error] ${err.message}\x1b[0m\n`)
     setStatus(instance.id, 'stopped')
   })
   child.on('close', (code) => {
-    appendOutput(instance.id, `\n[process exited with code ${code ?? 'unknown'}]\n`)
+    // Flush any partial line the colorizer held back before the exit notice.
+    const tail = flushColor(r.color)
+    if (tail) appendOutput(instance.id, tail)
+    const exitColor = !r.userStopped && code !== 0 ? '\x1b[91m' : '\x1b[90m'
+    appendOutput(instance.id, `\n${exitColor}[process exited with code ${code ?? 'unknown'}]\x1b[0m\n`)
     const crashed = !r.userStopped && code !== 0
     setStatus(instance.id, 'stopped')
     stopWatch(instance.id)
@@ -188,7 +198,7 @@ export function start(instance: Instance, dir: string): void {
     if (crashed) {
       notify(instance.name, `Server stopped unexpectedly (exit code ${code ?? 'unknown'}).`)
       if (getConfig().autoRestartOnCrash) {
-        appendOutput(instance.id, '\n[auto-restarting after crash…]\n')
+        appendOutput(instance.id, '\n\x1b[36m[auto-restarting after crash…]\x1b[0m\n')
         setTimeout(() => start(instance, dir), 1500)
       }
     }

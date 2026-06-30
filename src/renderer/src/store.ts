@@ -58,6 +58,9 @@ interface AppState {
   settingsOpen: boolean
   openSettings: () => void
   closeSettings: () => void
+  matrixOpen: boolean
+  openMatrix: () => void
+  closeMatrix: () => void
 
   /** Merge + persist app config (applies theme immediately if changed). */
   updateConfig: (patch: Partial<AppConfig>) => Promise<void>
@@ -190,6 +193,9 @@ export const useApp = create<AppState>((set, get) => ({
   settingsOpen: false,
   openSettings: () => set({ settingsOpen: true }),
   closeSettings: () => set({ settingsOpen: false }),
+  matrixOpen: false,
+  openMatrix: () => set({ matrixOpen: true }),
+  closeMatrix: () => set({ matrixOpen: false }),
 
   updateConfig: async (patch) => {
     const config = await window.api.updateConfig(patch)

@@ -1,4 +1,11 @@
-import { useEffect, useState, type DragEvent, type ReactElement } from 'react'
+import {
+  useEffect,
+  useState,
+  type DragEvent,
+  type Dispatch,
+  type ReactElement,
+  type SetStateAction
+} from 'react'
 import {
   Upload,
   Trash2,
@@ -29,16 +36,20 @@ function formatSize(bytes: number): string {
 export function ContentView({
   instanceId,
   label,
-  sources
+  sources,
+  updates,
+  setUpdates
 }: {
   instanceId: string
   label: string
   sources: ContentSource[]
+  /** Pending updates, owned by ServerView so the tab can show a badge. */
+  updates: ContentUpdate[] | null
+  setUpdates: Dispatch<SetStateAction<ContentUpdate[] | null>>
 }): ReactElement {
   const [tab, setTab] = useState<'installed' | 'browse'>('installed')
   const [files, setFiles] = useState<ContentFile[]>([])
   const [dragOver, setDragOver] = useState(false)
-  const [updates, setUpdates] = useState<ContentUpdate[] | null>(null)
   const [checking, setChecking] = useState(false)
   const [updatingName, setUpdatingName] = useState<string | null>(null)
 
@@ -62,7 +73,6 @@ export function ContentView({
     setSource(sources[0] ?? 'modrinth')
     setError(null)
     setNote(null)
-    setUpdates(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [instanceId])
 

@@ -107,6 +107,8 @@ const api: BirdflopApi = {
   detectEditors: () => ipcRenderer.invoke('files:detectEditors'),
   openInEditor: (id, editorId, relPath) =>
     ipcRenderer.invoke('files:openInEditor', id, editorId, relPath),
+  getServerProperties: (id) => ipcRenderer.invoke('properties:get', id),
+  setServerProperties: (id, kv) => ipcRenderer.invoke('properties:set', id, kv),
 
   clearServerBuffer: (id) => ipcRenderer.invoke('server:clearBuffer', id),
   saveServerLog: (id) => ipcRenderer.invoke('server:saveLog', id),

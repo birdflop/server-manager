@@ -12,6 +12,15 @@ function memArgs(ramMB: number): string[] {
   return [`-Xmx${ramMB}M`, `-Xms${ramMB}M`]
 }
 
+/** JDWP agent args for remote debugging, or [] when disabled. */
+function debugArgs(instance: Instance): string[] {
+  const dbg = instance.debug
+  if (!dbg?.enabled) return []
+  const suspend = dbg.suspend ? 'y' : 'n'
+  // address=*:<port> binds all interfaces so an IDE on the host can attach.
+  return [`-agentlib:jdwp=transport=dt_socket,server=y,suspend=${suspend},address=*:${dbg.port}`]
+}
+
 /** Locate the Forge/NeoForge platform args file produced by the installer. */
 function findArgsFile(dir: string): string | null {
   const target = process.platform === 'win32' ? 'win_args.txt' : 'unix_args.txt'
@@ -47,7 +56,8 @@ export function buildLaunch(instance: Instance, dir: string): LaunchCmd {
 
   if (instance.launchKind === 'args-file') {
     // Forge/NeoForge launch via @argfiles. We own user_jvm_args.txt (memory + extras).
-    const userArgs = [...memArgs(instance.ramMB), ...instance.jvmArgs].join('\n') + '\n'
+    const userArgs =
+      [...memArgs(instance.ramMB), ...debugArgs(instance), ...instance.jvmArgs].join('\n') + '\n'
     writeFileSync(join(dir, 'user_jvm_args.txt'), userArgs, 'utf-8')
     const argsFile = findArgsFile(dir)
     if (!argsFile) {
@@ -59,7 +69,7 @@ export function buildLaunch(instance: Instance, dir: string): LaunchCmd {
 
   // Runnable jar (Paper / Purpur / Vanilla / Fabric / Quilt / proxies).
   const jar = instance.launchJar || 'server.jar'
-  const args = [...memArgs(instance.ramMB), ...instance.jvmArgs, '-jar', jar]
+  const args = [...memArgs(instance.ramMB), ...debugArgs(instance), ...instance.jvmArgs, '-jar', jar]
   // Proxies (Velocity / BungeeCord / Waterfall) have no GUI and reject the `nogui` flag.
   if (!isProxy(instance.serverType)) args.push('nogui')
   return { command: java, args }

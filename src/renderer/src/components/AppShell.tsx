@@ -8,6 +8,7 @@ import CreateInstanceWizard from '../modals/CreateInstanceWizard'
 import UpdateModal from '../modals/UpdateModal'
 import AppSettingsModal from '../modals/AppSettingsModal'
 import ImportModal from '../modals/ImportModal'
+import TestMatrixModal from '../modals/TestMatrixModal'
 
 export default function AppShell(): ReactElement {
   const activeTabId = useApp((s) => s.activeTabId)
@@ -16,6 +17,7 @@ export default function AppShell(): ReactElement {
   const updateModalOpen = useApp((s) => s.updateModalOpen)
   const settingsOpen = useApp((s) => s.settingsOpen)
   const importOpen = useApp((s) => s.importOpen)
+  const matrixOpen = useApp((s) => s.matrixOpen)
 
   return (
     <div className="flex h-full w-full bg-app text-fg">
@@ -30,6 +32,7 @@ export default function AppShell(): ReactElement {
       {updateModalOpen && <UpdateModal />}
       {settingsOpen && <AppSettingsModal />}
       {importOpen && <ImportModal />}
+      {matrixOpen && <TestMatrixModal />}
     </div>
   )
 }

@@ -13,15 +13,18 @@ import {
   Activity,
   Network,
   FolderTree,
-  Share2
+  Share2,
+  SlidersHorizontal,
+  Bug
 } from 'lucide-react'
-import type { Instance, ServerStatus } from '@shared/types'
+import type { ContentUpdate, Instance, ServerStatus } from '@shared/types'
 import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf, isProxy } from '@shared/software'
 import { useApp } from '../store'
 import { StatusDot } from '../components/StatusDot'
 import { CopyAddress } from '../components/CopyAddress'
 import { ConsoleView } from './ConsoleView'
 import { ContentView } from './ContentView'
+import { PropertiesView } from './PropertiesView'
 import { SettingsView } from './SettingsView'
 import { BackupsView } from './BackupsView'
 import { PerformanceView } from './PerformanceView'
@@ -33,6 +36,7 @@ type SubId =
   | 'console'
   | 'content'
   | 'backends'
+  | 'properties'
   | 'files'
   | 'performance'
   | 'backups'
@@ -53,11 +57,22 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
   const closeTab = useApp((s) => s.closeTab)
   const [instance, setInstance] = useState<Instance | null>(null)
   const [sub, setSub] = useState<SubId>('console')
+  const [contentUpdates, setContentUpdates] = useState<ContentUpdate[] | null>(null)
 
   useEffect(() => {
     setInstance(null)
     setSub('console')
-    void window.api.getInstance(instanceId).then(setInstance)
+    setContentUpdates(null)
+    void window.api.getInstance(instanceId).then((inst) => {
+      setInstance(inst)
+      // Surface available plugin/mod updates as a tab badge without the user clicking "Check updates".
+      if (inst && contentKindOf(inst.serverType) !== 'none') {
+        window.api
+          .checkContentUpdates(instanceId)
+          .then(setContentUpdates)
+          .catch(() => setContentUpdates(null))
+      }
+    })
   }, [instanceId])
 
   const reload = useCallback(async () => {
@@ -76,10 +91,14 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
   const ck = contentKindOf(instance.serverType)
   const proxy = isProxy(instance.serverType)
   const contentLabel = ck === 'plugins' ? 'Plugins' : 'Mods'
-  const subviews: { id: SubId; label: string; icon: typeof Terminal }[] = [
+  const updateCount = contentUpdates?.length ?? 0
+  const subviews: { id: SubId; label: string; icon: typeof Terminal; badge?: number }[] = [
     { id: 'console', label: 'Console', icon: Terminal },
-    ...(ck !== 'none' ? [{ id: 'content' as SubId, label: contentLabel, icon: Package }] : []),
+    ...(ck !== 'none'
+      ? [{ id: 'content' as SubId, label: contentLabel, icon: Package, badge: updateCount }]
+      : []),
     ...(proxy ? [{ id: 'backends' as SubId, label: 'Backends', icon: Network }] : []),
+    ...(!proxy ? [{ id: 'properties' as SubId, label: 'Properties', icon: SlidersHorizontal }] : []),
     { id: 'files', label: 'Files', icon: FolderTree },
     { id: 'performance', label: 'Performance', icon: Activity },
     { id: 'backups', label: 'Backups', icon: Archive },
@@ -116,6 +135,14 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
                 {instance.mcVersion} · {instance.build}
               </span>
               <CopyAddress port={instance.port} />
+              {instance.debug?.enabled && (
+                <span
+                  className="inline-flex items-center gap-1 rounded bg-surface-2 px-1.5 py-0.5 text-[11px]"
+                  title="Remote debugging enabled — attach a debugger to this port"
+                >
+                  <Bug size={11} /> debug :{instance.debug.port}
+                </span>
+              )}
             </p>
           </div>
 
@@ -147,7 +174,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
         </div>
 
         <div className="mt-3 flex gap-1">
-          {subviews.map(({ id, label, icon: Icon }) => (
+          {subviews.map(({ id, label, icon: Icon, badge }) => (
             <button
               key={id}
               onClick={() => setSub(id)}
@@ -156,6 +183,14 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
               }`}
             >
               <Icon size={15} /> {label}
+              {!!badge && badge > 0 && (
+                <span
+                  className="grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-fg"
+                  title={`${badge} update${badge === 1 ? '' : 's'} available`}
+                >
+                  {badge}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -168,9 +203,12 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
             instanceId={instanceId}
             label={contentLabel}
             sources={contentSourcesOf(instance.serverType)}
+            updates={contentUpdates}
+            setUpdates={setContentUpdates}
           />
         )}
         {sub === 'backends' && <ProxyBackendsView instance={instance} status={status} />}
+        {sub === 'properties' && <PropertiesView instanceId={instanceId} status={status} />}
         {sub === 'files' && <FilesView instanceId={instanceId} />}
         {sub === 'performance' && <PerformanceView instance={instance} />}
         {sub === 'backups' && <BackupsView instanceId={instanceId} status={status} />}

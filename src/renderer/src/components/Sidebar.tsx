@@ -10,7 +10,8 @@ import {
   Pencil,
   Trash2,
   Check,
-  X
+  X,
+  Grid3x3
 } from 'lucide-react'
 import type { Group, InstanceMeta } from '@shared/types'
 import { useApp } from '../store'
@@ -182,6 +183,7 @@ export default function Sidebar(): ReactElement {
   const rootPath = useApp((s) => s.config?.rootPath ?? '')
   const openWizard = useApp((s) => s.openWizard)
   const openImport = useApp((s) => s.openImport)
+  const openMatrix = useApp((s) => s.openMatrix)
   const createGroup = useApp((s) => s.createGroup)
   const moveInstance = useApp((s) => s.moveInstance)
 
@@ -232,12 +234,21 @@ export default function Sidebar(): ReactElement {
         >
           <Plus size={16} /> New Instance
         </button>
-        <button
-          onClick={openImport}
-          className="flex w-full items-center justify-center gap-2 rounded-brand border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
-        >
-          <FolderInput size={14} /> Import existing
-        </button>
+        <div className="flex gap-1.5">
+          <button
+            onClick={openImport}
+            className="flex flex-1 items-center justify-center gap-2 rounded-brand border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+          >
+            <FolderInput size={14} /> Import
+          </button>
+          <button
+            onClick={openMatrix}
+            title="Test the same setup across multiple Minecraft versions"
+            className="flex flex-1 items-center justify-center gap-2 rounded-brand border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+          >
+            <Grid3x3 size={14} /> Matrix
+          </button>
+        </div>
       </div>
 
       {/* Tree */}

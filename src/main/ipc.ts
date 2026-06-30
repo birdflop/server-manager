@@ -49,6 +49,7 @@ import { importModpack } from './modpack'
 import {
   writeEula,
   setServerProperties,
+  readServerProperties,
   setProxyPort,
   writeProxyBackends,
   proxyServerName,
@@ -402,6 +403,19 @@ export function registerIpc(): void {
   ipcMain.handle('files:detectEditors', () => detectEditors())
   ipcMain.handle('files:openInEditor', (_e, id: string, editorId: string, relPath?: string) =>
     openInEditor(requireRoot(), id, editorId, relPath)
+  )
+
+  // ---- server.properties (visual editor) ----
+  ipcMain.handle('properties:get', (_e, id: string): Record<string, string> => {
+    return readServerProperties(instanceDir(requireRoot(), id))
+  })
+  ipcMain.handle(
+    'properties:set',
+    (_e, id: string, kv: Record<string, string>): Record<string, string> => {
+      const dir = instanceDir(requireRoot(), id)
+      setServerProperties(dir, kv)
+      return readServerProperties(dir)
+    }
   )
 
   ipcMain.handle('shell:openExternal', (_e, url: string) => {

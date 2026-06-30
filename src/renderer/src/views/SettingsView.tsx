@@ -8,9 +8,12 @@ import {
   Copy,
   Eye,
   BookmarkPlus,
-  RefreshCw
+  RefreshCw,
+  Bug,
+  ClipboardCopy
 } from 'lucide-react'
 import type {
+  DebugConfig,
   Instance,
   InstanceTemplate,
   JavaInstall,
@@ -18,7 +21,7 @@ import type {
   WatchAction,
   WatchConfig
 } from '@shared/types'
-import { DEFAULT_WATCH } from '@shared/types'
+import { DEFAULT_DEBUG, DEFAULT_WATCH } from '@shared/types'
 import { SERVER_TYPE_MAP, contentDirOf, contentKindOf } from '@shared/software'
 import { useApp } from '../store'
 
@@ -112,6 +115,32 @@ export function SettingsView({
     }
   }
 
+  // ---- Remote debugging (JDWP) state ----
+  const initialDebug = instance.debug ?? DEFAULT_DEBUG
+  const [debugEnabled, setDebugEnabled] = useState(initialDebug.enabled)
+  const [debugPort, setDebugPort] = useState(initialDebug.port)
+  const [debugSuspend, setDebugSuspend] = useState(initialDebug.suspend)
+  const [copiedDebug, setCopiedDebug] = useState(false)
+
+  function buildDebug(): DebugConfig {
+    return {
+      enabled: debugEnabled,
+      port: Math.min(65535, Math.max(1, debugPort || 5005)),
+      suspend: debugSuspend
+    }
+  }
+
+  const debugDirty =
+    debugEnabled !== initialDebug.enabled ||
+    debugPort !== initialDebug.port ||
+    debugSuspend !== initialDebug.suspend
+
+  async function copyDebugAddress(): Promise<void> {
+    await window.api.copyText(`localhost:${buildDebug().port}`)
+    setCopiedDebug(true)
+    setTimeout(() => setCopiedDebug(false), 1500)
+  }
+
   useEffect(() => {
     void window.api.listJava().then(setJavas)
   }, [])
@@ -132,7 +161,8 @@ export function SettingsView({
     ramMB !== instance.ramMB ||
     javaPath !== instance.javaPath ||
     jvmArgs !== instance.jvmArgs.join(' ') ||
-    watchDirty
+    watchDirty ||
+    debugDirty
 
   async function save(): Promise<void> {
     setSaving(true)
@@ -143,7 +173,8 @@ export function SettingsView({
         ramMB,
         javaPath,
         jvmArgs: jvmArgs.split(/\s+/).filter(Boolean),
-        ...(watchDirty ? { watch: buildWatch() } : {})
+        ...(watchDirty ? { watch: buildWatch() } : {}),
+        ...(debugDirty ? { debug: buildDebug() } : {})
       })
       await reload()
     } finally {
@@ -362,6 +393,71 @@ export function SettingsView({
                 />
               </Labeled>
             )}
+          </div>
+        )}
+      </section>
+
+      {/* Remote debugging (JDWP) */}
+      <section className="rounded-brand border border-border bg-surface p-4">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Bug size={15} /> Remote debugging (JDWP)
+          </h2>
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-muted">
+            <input
+              type="checkbox"
+              checked={debugEnabled}
+              onChange={(e) => setDebugEnabled(e.target.checked)}
+              className="h-4 w-4 accent-[var(--c-accent)]"
+            />
+            Enabled
+          </label>
+        </div>
+        <p className="mb-3 text-xs text-fg-muted">
+          Launches the server with a JDWP agent so you can attach a debugger (IntelliJ / VS Code) and
+          set breakpoints in your plugin or mod. Restart the server after changing these.
+        </p>
+
+        {debugEnabled && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <Labeled label="Debug port">
+                <input
+                  type="number"
+                  min={1}
+                  max={65535}
+                  value={debugPort}
+                  onChange={(e) => setDebugPort(Number(e.target.value))}
+                  className="w-full rounded-md bg-input px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
+                />
+              </Labeled>
+              <Labeled label="Suspend until attached">
+                <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-sm text-fg-muted">
+                  <input
+                    type="checkbox"
+                    checked={debugSuspend}
+                    onChange={(e) => setDebugSuspend(e.target.checked)}
+                    className="h-4 w-4 accent-[var(--c-accent)]"
+                  />
+                  Pause startup for the debugger
+                </label>
+              </Labeled>
+            </div>
+            <div className="flex items-center gap-2 rounded-md bg-surface-2 px-3 py-2 text-xs text-fg-muted">
+              <span>
+                Attach a “Remote JVM Debug” run config to{' '}
+                <code className="rounded bg-input px-1 py-0.5 font-mono text-fg">
+                  localhost:{buildDebug().port}
+                </code>
+              </span>
+              <button
+                type="button"
+                onClick={() => void copyDebugAddress()}
+                className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-fg-muted transition hover:bg-surface hover:text-fg"
+              >
+                <ClipboardCopy size={12} /> {copiedDebug ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
           </div>
         )}
       </section>

@@ -54,6 +54,8 @@ Browse and one-click install content without leaving the app. Plugin servers sea
 
 Edit runtime settings (port, memory slider, Java install, extra JVM args), snapshot the whole server folder to a backup and restore it later, duplicate a server, or organize servers into collapsible groups with drag & drop. Import an existing server folder to bring it under management.
 
+See [**Server settings**](docs/server-settings.md) for a full reference of every per-server option, including the file watcher, remote debugging (JDWP), and the `server.properties` editor.
+
 <img src="docs/screenshots/settings.png" alt="Per-server settings view" width="820" />
 
 ### File watcher (auto-restart on change)
