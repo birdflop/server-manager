@@ -12,6 +12,15 @@ function memArgs(ramMB: number): string[] {
   return [`-Xmx${ramMB}M`, `-Xms${ramMB}M`]
 }
 
+/**
+ * Force Log4j's TerminalConsoleAppender (Paper/Purpur/Velocity/Waterfall) to emit
+ * ANSI color even though we pipe stdout instead of attaching a TTY. Without this the
+ * server detects "no terminal" and strips its own colors — which is why console color
+ * shows up when launched from a dev shell but not from a packaged app (no inherited
+ * TERM). Unknown to JVMs that don't use the appender (Vanilla/Forge), so it's harmless.
+ */
+const ANSI_PROP = '-Dterminal.ansi=true'
+
 /** JDWP agent args for remote debugging, or [] when disabled. */
 function debugArgs(instance: Instance): string[] {
   const dbg = instance.debug
@@ -57,7 +66,8 @@ export function buildLaunch(instance: Instance, dir: string): LaunchCmd {
   if (instance.launchKind === 'args-file') {
     // Forge/NeoForge launch via @argfiles. We own user_jvm_args.txt (memory + extras).
     const userArgs =
-      [...memArgs(instance.ramMB), ...debugArgs(instance), ...instance.jvmArgs].join('\n') + '\n'
+      [ANSI_PROP, ...memArgs(instance.ramMB), ...debugArgs(instance), ...instance.jvmArgs].join('\n') +
+      '\n'
     writeFileSync(join(dir, 'user_jvm_args.txt'), userArgs, 'utf-8')
     const argsFile = findArgsFile(dir)
     if (!argsFile) {
@@ -69,7 +79,7 @@ export function buildLaunch(instance: Instance, dir: string): LaunchCmd {
 
   // Runnable jar (Paper / Purpur / Vanilla / Fabric / Quilt / proxies).
   const jar = instance.launchJar || 'server.jar'
-  const args = [...memArgs(instance.ramMB), ...debugArgs(instance), ...instance.jvmArgs, '-jar', jar]
+  const args = [ANSI_PROP, ...memArgs(instance.ramMB), ...debugArgs(instance), ...instance.jvmArgs, '-jar', jar]
   // Proxies (Velocity / BungeeCord / Waterfall) have no GUI and reject the `nogui` flag.
   if (!isProxy(instance.serverType)) args.push('nogui')
   return { command: java, args }
