@@ -142,7 +142,14 @@ export function start(instance: Instance, dir: string): void {
     return
   }
 
-  const child = spawn(cmd.command, cmd.args, { cwd: dir })
+  // Paper/Purpur (TerminalConsoleAppender) only emit their native §→ANSI message
+  // colors — plugin lists, MOTDs, /plugins — when TERM advertises a color terminal,
+  // even with -Dterminal.ansi=true. A packaged app launched from Explorer has no TERM,
+  // so the server strips color (it works in a dev shell, which sets TERM). Provide one.
+  const child = spawn(cmd.command, cmd.args, {
+    cwd: dir,
+    env: { ...process.env, TERM: process.env.TERM || 'xterm-256color' }
+  })
   const r: Running = {
     child,
     status: 'starting',
