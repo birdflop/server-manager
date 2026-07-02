@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/birdflop/server-manager/compare/v0.7.0...v0.8.0) (2026-07-02)
+
+
+### Features
+
+* add performance polling for Minecraft servers ([50daf18](https://github.com/birdflop/server-manager/commit/50daf1882aa6679dd53a4561cdf60f5d49dfc143))
+
 ## [0.7.0](https://github.com/birdflop/server-manager/compare/v0.6.0...v0.7.0) (2026-06-30)
 
 
