@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { BrowserWindow, Notification } from 'electron'
 import pidusage from 'pidusage'
 import type { Instance, ServerStatus } from '@shared/types'
@@ -7,6 +8,7 @@ import { buildLaunch } from './launch'
 import { diagnose } from './diagnose'
 import { colorize, flushColor, type ColorState } from './colorize'
 import { syncWatch, stopWatch, stopAllWatch } from './watcher'
+import { startPerfPolling, stopPerfPolling, stopAllPerfPolling } from './perf'
 import { getConfig } from '../config'
 
 interface Running {
@@ -24,6 +26,27 @@ interface Running {
 const running = new Map<string, Running>()
 const MAX_BUFFER = 256 * 1024
 let statsTimer: ReturnType<typeof setInterval> | null = null
+
+/**
+ * In-process mirror of the renderer broadcasts, for main-side consumers (compat runs).
+ * Events: 'output' {id, chunk} · 'status' {id, status} · 'closed' {id, code}.
+ */
+export const serverEvents = new EventEmitter()
+serverEvents.setMaxListeners(50)
+
+/** Servers whose crash notifications + auto-restart are suppressed (compat runs drive them). */
+const quietIds = new Set<string>()
+
+/** Toggle notification/auto-restart suppression for a server under orchestrated control. */
+export function setQuiet(id: string, on: boolean): void {
+  if (on) quietIds.add(id)
+  else quietIds.delete(id)
+}
+
+/** Append an app-generated (cyan) notice line to a server's console, if it has one. */
+export function appendNotice(id: string, text: string): void {
+  appendOutput(id, `\n\x1b[36m${text}\x1b[0m\n`)
+}
 
 function notify(title: string, body: string): void {
   if (!getConfig().notifications) return
@@ -55,6 +78,7 @@ function setStatus(id: string, status: ServerStatus): void {
   const r = running.get(id)
   if (r) r.status = status
   broadcast('server:status', { id, status })
+  serverEvents.emit('status', { id, status })
 }
 
 function appendOutput(id: string, chunk: string): void {
@@ -63,6 +87,7 @@ function appendOutput(id: string, chunk: string): void {
   r.buffer += chunk
   if (r.buffer.length > MAX_BUFFER) r.buffer = r.buffer.slice(-MAX_BUFFER)
   broadcast('server:output', { id, chunk })
+  serverEvents.emit('output', { id, chunk })
 }
 
 /** Attach a file watcher for an instance, wiring changes to the configured action. */
@@ -171,7 +196,8 @@ export function start(instance: Instance, dir: string): void {
     if (colored) appendOutput(instance.id, colored)
     if (r.status === 'starting' && readyPattern.test(text)) {
       setStatus(instance.id, 'running')
-      notify(instance.name, 'Server is ready.')
+      startPerfPolling(instance)
+      if (!quietIds.has(instance.id)) notify(instance.name, 'Server is ready.')
     }
   }
   child.stdout.on('data', onData)
@@ -187,8 +213,11 @@ export function start(instance: Instance, dir: string): void {
     const exitColor = !r.userStopped && code !== 0 ? '\x1b[91m' : '\x1b[90m'
     appendOutput(instance.id, `\n${exitColor}[process exited with code ${code ?? 'unknown'}]\x1b[0m\n`)
     const crashed = !r.userStopped && code !== 0
+    // Emit before the status flip so exit-code consumers win the race against 'stopped'.
+    serverEvents.emit('closed', { id: instance.id, code })
     setStatus(instance.id, 'stopped')
     stopWatch(instance.id)
+    stopPerfPolling(instance.id)
 
     // Diagnose abnormal exits (even clean-code ones with a known fatal marker, e.g. EULA).
     if (!r.userStopped) {
@@ -202,7 +231,7 @@ export function start(instance: Instance, dir: string): void {
       }
     }
 
-    if (crashed) {
+    if (crashed && !quietIds.has(instance.id)) {
       notify(instance.name, `Server stopped unexpectedly (exit code ${code ?? 'unknown'}).`)
       if (getConfig().autoRestartOnCrash) {
         appendOutput(instance.id, '\n\x1b[36m[auto-restarting after crash…]\x1b[0m\n')
@@ -253,6 +282,7 @@ export function restart(instance: Instance, dir: string): void {
 /** Kill every running server (used on app quit). */
 export function stopAll(): void {
   stopAllWatch()
+  stopAllPerfPolling()
   for (const [, r] of running) {
     try {
       r.child.kill()

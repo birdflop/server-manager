@@ -17,6 +17,13 @@ function tarBin(): string {
   return isWin ? join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe') : 'tar'
 }
 
+/** How a backup was made, encoded as a filename prefix. */
+function kindOf(name: string): BackupInfo['kind'] {
+  if (name.startsWith('auto-')) return 'auto'
+  if (name.startsWith('pre-restore-')) return 'pre-restore'
+  return 'manual'
+}
+
 export function listBackups(root: string, id: string): BackupInfo[] {
   const dir = backupsDir(root, id)
   if (!existsSync(dir)) return []
@@ -24,18 +31,18 @@ export function listBackups(root: string, id: string): BackupInfo[] {
     .filter((f) => f.endsWith('.zip') || f.endsWith('.tar.gz'))
     .map((f) => {
       const s = statSync(join(dir, f))
-      return { name: f, size: s.size, createdAt: s.mtimeMs }
+      return { name: f, size: s.size, createdAt: s.mtimeMs, kind: kindOf(f) }
     })
     .sort((a, b) => b.createdAt - a.createdAt)
 }
 
-export function createBackup(root: string, id: string): BackupInfo[] {
+export function createBackup(root: string, id: string, prefix = ''): BackupInfo[] {
   const inst = instanceDir(root, id)
   if (!existsSync(inst)) throw new Error('Instance folder not found')
   const dir = backupsDir(root, id)
   mkdirSync(dir, { recursive: true })
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const out = join(dir, `${stamp}.${ARCHIVE_EXT}`)
+  const out = join(dir, `${prefix}${stamp}.${ARCHIVE_EXT}`)
   const rel = relative(inst, out)
   // Skip the world lock file (held by a running server) to avoid read errors.
   const args = isWin
@@ -64,6 +71,26 @@ export function restoreBackup(root: string, id: string, name: string): void {
   // Tolerate benign extraction warnings as long as files were actually written.
   if (res.status !== 0 && readdirSync(inst).length === 0) {
     throw new Error(`Restore failed: ${res.stderr?.trim() || `tar exited with code ${res.status}`}`)
+  }
+}
+
+/** Delete the oldest backups of one kind beyond `keep` (retention for scheduled backups). */
+export function pruneBackups(
+  root: string,
+  id: string,
+  kind: BackupInfo['kind'],
+  keep: number
+): void {
+  if (keep < 1) return
+  const excess = listBackups(root, id)
+    .filter((b) => b.kind === kind)
+    .slice(keep)
+  for (const b of excess) {
+    try {
+      rmSync(join(backupsDir(root, id), b.name))
+    } catch {
+      /* locked or already gone */
+    }
   }
 }
 

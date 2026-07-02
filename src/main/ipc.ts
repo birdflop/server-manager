@@ -32,7 +32,8 @@ import {
   instanceDir,
   type InstancePatch
 } from './store/instances'
-import { listBackups, createBackup, restoreBackup, deleteBackup } from './servers/backups'
+import { listBackups, createBackup, restoreBackup, deleteBackup, pruneBackups } from './servers/backups'
+import { resyncBackupSchedule } from './servers/backup-scheduler'
 import { getProvider } from './software'
 import { listJava, refreshJava, invalidateJavaCache } from './java/detect'
 import { ensureJava } from './java/adoptium'
@@ -62,7 +63,31 @@ import * as servers from './servers/registry'
 import { startTunnel, stopTunnel, tunnelInfo } from './tunnels/registry'
 import { listProviderStatuses } from './tunnels/index'
 import type { TunnelStartOptions } from './tunnels/types'
-import type { ForwardingResult, ModpackImportPayload, TunnelProviderId } from '@shared/types'
+import { applyShareSafetyFix, checkShareSafety } from './servers/share-safety'
+import { startCompatRun, cancelCompatRun, getCompatRun } from './servers/compat'
+import { detectBuildSystem, deployNow, syncDevLink, syncAllDevLinks, stopDevLink } from './servers/devlink'
+import { getBedrockStatus, installBedrock } from './servers/geyser'
+import { botsStatus, startBots, stopBots } from './servers/bots'
+import type { BotsOptions } from '@shared/types'
+import { writeRecipe, readRecipe, importRecipe } from './recipes'
+import type { RecipeImportPayload } from '@shared/types'
+import {
+  listWorlds,
+  setActiveWorld,
+  deleteWorld,
+  regenerateWorld,
+  exportWorld,
+  importWorld,
+  addDatapacks,
+  deleteDatapack
+} from './servers/worlds'
+import type {
+  CompatRunOptions,
+  ForwardingResult,
+  ModpackImportPayload,
+  ShareSafetyFix,
+  TunnelProviderId
+} from '@shared/types'
 import {
   listContent,
   addContentFiles,
@@ -125,6 +150,7 @@ export function registerIpc(): void {
   ipcMain.handle('app:setRoot', (_e, root: string): ManagerIndex => {
     const index = ensureRoot(root)
     setConfig({ rootPath: root })
+    syncAllDevLinks(root)
     return index
   })
 
@@ -241,6 +267,10 @@ export function registerIpc(): void {
       }
       // Re-sync the file watcher live if its config changed and the server is running.
       if (patch.watch !== undefined) servers.refreshWatch(result.instance, dir)
+      // Re-sync the dev-project link watcher whenever its config changes.
+      if (patch.devLink !== undefined) syncDevLink(root, result.instance)
+      // Re-apply the backup schedule live when it changes on a running server.
+      if (patch.backup !== undefined) resyncBackupSchedule(root, result.instance)
     }
     return result
   })
@@ -248,6 +278,7 @@ export function registerIpc(): void {
   ipcMain.handle('instances:delete', (_e, id: string) => {
     const root = requireRoot()
     servers.stop(id) // ensure the process isn't holding the folder
+    stopDevLink(id)
     return deleteInstance(root, id)
   })
 
@@ -347,23 +378,51 @@ export function registerIpc(): void {
   ipcMain.handle('backups:create', (_e, id: string) => createBackup(requireRoot(), id))
   ipcMain.handle('backups:restore', (_e, id: string, name: string) => {
     if (servers.isRunning(id)) throw new Error('Stop the server before restoring a backup.')
-    restoreBackup(requireRoot(), id, name)
+    const root = requireRoot()
+    // Safety snapshot of the current state, so a restore is always reversible.
+    createBackup(root, id, 'pre-restore-')
+    pruneBackups(root, id, 'pre-restore', 3)
+    restoreBackup(root, id, name)
   })
   ipcMain.handle('backups:delete', (_e, id: string, name: string) =>
     deleteBackup(requireRoot(), id, name)
   )
 
+  /**
+   * Provision app-managed local RCON for a server (used for silent TPS polling).
+   * Generates credentials once, then keeps server.properties in sync every start.
+   */
+  function ensureRcon(root: string, inst: Instance): Instance {
+    if (isProxy(inst.serverType)) return inst
+    let rcon = inst.rcon
+    if (!rcon) {
+      // Derive a port away from the game port; wrap back into range for high ports.
+      let rconPort = inst.port + 10000
+      if (rconPort > 65535) rconPort = inst.port - 10000
+      if (rconPort < 1024) rconPort = 25575
+      rcon = { port: rconPort, password: randomUUID().replace(/-/g, '') }
+      updateInstance(root, inst.id, { rcon })
+    }
+    setServerProperties(instanceDir(root, inst.id), {
+      'enable-rcon': 'true',
+      'rcon.port': rcon.port,
+      'rcon.password': rcon.password,
+      'broadcast-rcon-to-ops': 'false'
+    })
+    return { ...inst, rcon }
+  }
+
   // ---- Server lifecycle ----
   ipcMain.handle('server:start', (_e, id: string) => {
     const root = requireRoot()
     const inst = readInstance(root, id)
-    if (inst) servers.start(inst, instanceDir(root, id))
+    if (inst) servers.start(ensureRcon(root, inst), instanceDir(root, id))
   })
   ipcMain.handle('server:stop', (_e, id: string) => servers.stop(id))
   ipcMain.handle('server:restart', (_e, id: string) => {
     const root = requireRoot()
     const inst = readInstance(root, id)
-    if (inst) servers.restart(inst, instanceDir(root, id))
+    if (inst) servers.restart(ensureRcon(root, inst), instanceDir(root, id))
   })
   ipcMain.handle('server:command', (_e, id: string, command: string) =>
     servers.sendCommand(id, command)
@@ -460,21 +519,137 @@ export function registerIpc(): void {
       tunnel: { provider, autoStart: inst.tunnel?.autoStart ?? false, label: inst.tunnel?.label }
     })
 
-    // Birdflop needs the user's saved identity (or enrolls + persists a new one)
-    // and exposes the server on its own port under the user's subdomain.
+    // Birdflop exposes the server on its own port under the user's subdomain;
+    // the provider manages the shared identity (~/.birdflop) itself.
     const opts: TunnelStartOptions | undefined =
       provider === 'birdflop'
-        ? {
-            publicPort: inst.port,
-            label: inst.tunnel?.label,
-            identity: getConfig().birdflopTunnel,
-            onIdentity: (identity) => setConfig({ birdflopTunnel: identity })
-          }
+        ? { instanceId: id, publicPort: inst.port, label: inst.tunnel?.label }
         : undefined
 
     return startTunnel(id, provider, inst.port, opts)
   })
   ipcMain.handle('tunnel:stop', (_e, id: string) => stopTunnel(id))
+  ipcMain.handle('tunnel:safety', (_e, id: string) => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    if (!inst) throw new Error('Server not found')
+    return checkShareSafety(instanceDir(root, id), inst.serverType)
+  })
+  ipcMain.handle('tunnel:fixSafety', (_e, id: string, fix: ShareSafetyFix) => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    if (!inst) throw new Error('Server not found')
+    return applyShareSafetyFix(instanceDir(root, id), inst.serverType, fix)
+  })
+
+  // ---- Fake-player load testing ----
+  ipcMain.handle('bots:get', (_e, id: string) => botsStatus(id))
+  ipcMain.handle('bots:start', (_e, id: string, opts: BotsOptions) => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    if (!inst) throw new Error('Server not found')
+    if (!servers.isRunning(id)) throw new Error('Start the server first.')
+    return startBots(root, inst, opts)
+  })
+  ipcMain.handle('bots:stop', (_e, id: string) => stopBots(id))
+
+  // ---- Server recipes ----
+  ipcMain.handle('recipes:export', async (_e, id: string): Promise<string | null> => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    const safeName = (inst?.name ?? 'server').replace(/[^a-z0-9_-]+/gi, '-')
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Export server recipe',
+      defaultPath: `${safeName}.bsmrecipe`,
+      filters: [{ name: 'Server recipe', extensions: ['bsmrecipe', 'json'] }]
+    }
+    const result = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+    if (result.canceled || !result.filePath) return null
+    writeRecipe(root, id, result.filePath)
+    return result.filePath
+  })
+  ipcMain.handle('recipes:pick', async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Choose a server recipe',
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [{ name: 'Server recipe', extensions: ['bsmrecipe', 'json'] }]
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (result.canceled || result.filePaths.length === 0) return null
+    const path = result.filePaths[0]
+    return { path, recipe: readRecipe(path) }
+  })
+  ipcMain.handle('recipes:import', (e, payload: RecipeImportPayload) =>
+    importRecipe(requireRoot(), payload, (p) => e.sender.send('instances:createProgress', p))
+  )
+
+  // ---- Bedrock crossplay (Geyser) ----
+  ipcMain.handle('bedrock:status', (_e, id: string) => getBedrockStatus(requireRoot(), id))
+  ipcMain.handle('bedrock:install', (_e, id: string) => installBedrock(requireRoot(), id))
+
+  // ---- Worlds ----
+  ipcMain.handle('worlds:list', (_e, id: string) => listWorlds(requireRoot(), id))
+  ipcMain.handle('worlds:setActive', (_e, id: string, name: string) =>
+    setActiveWorld(requireRoot(), id, name)
+  )
+  ipcMain.handle('worlds:delete', (_e, id: string, name: string) => {
+    if (servers.isRunning(id)) throw new Error('Stop the server before deleting a world.')
+    return deleteWorld(requireRoot(), id, name)
+  })
+  ipcMain.handle('worlds:regenerate', (_e, id: string, name: string, seed: string) => {
+    if (servers.isRunning(id)) throw new Error('Stop the server before regenerating a world.')
+    return regenerateWorld(requireRoot(), id, name, seed)
+  })
+  ipcMain.handle('worlds:export', async (_e, id: string, name: string): Promise<string | null> => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Export world',
+      defaultPath: `${name}.zip`,
+      filters: [{ name: 'World archive', extensions: ['zip'] }]
+    }
+    const result = win ? await dialog.showSaveDialog(win, opts) : await dialog.showSaveDialog(opts)
+    if (result.canceled || !result.filePath) return null
+    exportWorld(requireRoot(), id, name, result.filePath)
+    return result.filePath
+  })
+  ipcMain.handle('worlds:import', async (_e, id: string) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Import world',
+      properties: ['openFile'] as Array<'openFile'>,
+      filters: [{ name: 'World archive', extensions: ['zip', 'tar.gz', 'tgz'] }]
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (result.canceled || result.filePaths.length === 0) return null
+    return importWorld(requireRoot(), id, result.filePaths[0])
+  })
+  ipcMain.handle('worlds:addDatapacks', async (_e, id: string, world: string) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Add datapacks',
+      properties: ['openFile', 'multiSelections'] as Array<'openFile' | 'multiSelections'>,
+      filters: [{ name: 'Datapack', extensions: ['zip'] }]
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (result.canceled || result.filePaths.length === 0) return null
+    return addDatapacks(requireRoot(), id, world, result.filePaths)
+  })
+  ipcMain.handle('worlds:deleteDatapack', (_e, id: string, world: string, name: string) =>
+    deleteDatapack(requireRoot(), id, world, name)
+  )
+
+  // ---- Dev-project link ----
+  ipcMain.handle('devlink:detect', (_e, projectPath: string) => detectBuildSystem(projectPath))
+  ipcMain.handle('devlink:deploy', (_e, id: string) => deployNow(requireRoot(), id))
+
+  // ---- Compatibility runs (test matrix CI) ----
+  ipcMain.handle('compat:start', (_e, instanceIds: string[], opts: CompatRunOptions) =>
+    startCompatRun(requireRoot(), instanceIds, opts)
+  )
+  ipcMain.handle('compat:cancel', () => cancelCompatRun())
+  ipcMain.handle('compat:get', () => getCompatRun())
 
   // ---- App + updater ----
   ipcMain.handle('app:getVersion', () => app.getVersion())

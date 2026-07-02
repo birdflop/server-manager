@@ -186,7 +186,20 @@ export function writeInstance(root: string, instance: Instance): void {
 
 /** Editable runtime fields of an instance. */
 export type InstancePatch = Partial<
-  Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs' | 'watch' | 'tunnel' | 'debug'>
+  Pick<
+    Instance,
+    | 'name'
+    | 'port'
+    | 'ramMB'
+    | 'javaPath'
+    | 'jvmArgs'
+    | 'watch'
+    | 'devLink'
+    | 'tunnel'
+    | 'debug'
+    | 'rcon'
+    | 'backup'
+  >
 >
 
 /** Apply editable changes to an instance's config + index. */

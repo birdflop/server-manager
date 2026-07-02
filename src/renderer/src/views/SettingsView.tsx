@@ -10,10 +10,14 @@ import {
   BookmarkPlus,
   RefreshCw,
   Bug,
-  ClipboardCopy
+  ClipboardCopy,
+  Hammer,
+  UploadCloud,
+  FileJson
 } from 'lucide-react'
 import type {
   DebugConfig,
+  DevLinkConfig,
   Instance,
   InstanceTemplate,
   JavaInstall,
@@ -21,7 +25,7 @@ import type {
   WatchAction,
   WatchConfig
 } from '@shared/types'
-import { DEFAULT_DEBUG, DEFAULT_WATCH } from '@shared/types'
+import { DEFAULT_DEBUG, DEFAULT_DEVLINK, DEFAULT_WATCH } from '@shared/types'
 import { SERVER_TYPE_MAP, contentDirOf, contentKindOf } from '@shared/software'
 import { useApp } from '../store'
 
@@ -38,6 +42,18 @@ function watchKey(w: WatchConfig): string {
     action: w.action,
     command: w.command || '',
     debounceMs: w.debounceMs
+  })
+}
+
+/** Stable serialization of a dev-link config for change detection (ignores lastDeployedJar). */
+function devLinkKey(d: DevLinkConfig): string {
+  return JSON.stringify({
+    enabled: d.enabled,
+    projectPath: d.projectPath,
+    outputDir: d.outputDir,
+    action: d.action,
+    command: d.command || '',
+    debounceMs: d.debounceMs
   })
 }
 
@@ -64,6 +80,15 @@ export function SettingsView({
   const updateConfig = useApp((s) => s.updateConfig)
   const templates = useApp((s) => s.config?.templates ?? [])
   const [savedTpl, setSavedTpl] = useState(false)
+  const [exportedRecipe, setExportedRecipe] = useState(false)
+
+  async function exportRecipe(): Promise<void> {
+    const path = await window.api.exportRecipe(instance.id)
+    if (path) {
+      setExportedRecipe(true)
+      setTimeout(() => setExportedRecipe(false), 2000)
+    }
+  }
 
   async function saveAsTemplate(): Promise<void> {
     const tpl: InstanceTemplate = {
@@ -115,6 +140,53 @@ export function SettingsView({
     }
   }
 
+  // ---- Dev-project link state ----
+  const canDevLink = contentKindOf(instance.serverType) !== 'none'
+  const initialDev = instance.devLink ?? DEFAULT_DEVLINK
+  const [devEnabled, setDevEnabled] = useState(initialDev.enabled)
+  const [devProject, setDevProject] = useState(initialDev.projectPath)
+  const [devOut, setDevOut] = useState(initialDev.outputDir)
+  const [devAction, setDevAction] = useState<WatchAction>(initialDev.action)
+  const [devCommand, setDevCommand] = useState(initialDev.command ?? '')
+  const [devDebounce, setDevDebounce] = useState(initialDev.debounceMs)
+  const [devSystem, setDevSystem] = useState<'gradle' | 'maven' | null>(null)
+  const [deploying, setDeploying] = useState(false)
+  const [deployMsg, setDeployMsg] = useState<string | null>(null)
+
+  function buildDevLink(): DevLinkConfig {
+    return {
+      enabled: devEnabled,
+      projectPath: devProject.trim(),
+      outputDir: devOut.trim(),
+      action: devAction,
+      command: devCommand.trim() || undefined,
+      debounceMs: Math.max(200, devDebounce || 1500),
+      lastDeployedJar: initialDev.lastDeployedJar
+    }
+  }
+
+  async function pickProject(): Promise<void> {
+    const path = await window.api.pickDirectory()
+    if (!path) return
+    setDevProject(path)
+    const info = await window.api.detectBuildSystem(path)
+    setDevSystem(info.system)
+    if (info.outputDir) setDevOut(info.outputDir)
+  }
+
+  async function deployNow(): Promise<void> {
+    setDeploying(true)
+    setDeployMsg(null)
+    try {
+      const jar = await window.api.deployDevLink(instance.id)
+      setDeployMsg(`Deployed ${jar}`)
+    } catch (e) {
+      setDeployMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setDeploying(false)
+    }
+  }
+
   // ---- Remote debugging (JDWP) state ----
   const initialDebug = instance.debug ?? DEFAULT_DEBUG
   const [debugEnabled, setDebugEnabled] = useState(initialDebug.enabled)
@@ -155,6 +227,7 @@ export function SettingsView({
   }
 
   const watchDirty = watchKey(buildWatch()) !== watchKey(initialWatch)
+  const devDirty = devLinkKey(buildDevLink()) !== devLinkKey(initialDev)
   const dirty =
     name !== instance.name ||
     port !== instance.port ||
@@ -162,6 +235,7 @@ export function SettingsView({
     javaPath !== instance.javaPath ||
     jvmArgs !== instance.jvmArgs.join(' ') ||
     watchDirty ||
+    devDirty ||
     debugDirty
 
   async function save(): Promise<void> {
@@ -174,6 +248,7 @@ export function SettingsView({
         javaPath,
         jvmArgs: jvmArgs.split(/\s+/).filter(Boolean),
         ...(watchDirty ? { watch: buildWatch() } : {}),
+        ...(devDirty ? { devLink: buildDevLink() } : {}),
         ...(debugDirty ? { debug: buildDebug() } : {})
       })
       await reload()
@@ -213,6 +288,13 @@ export function SettingsView({
               title="Duplicate this server"
             >
               <Copy size={13} /> Duplicate
+            </button>
+            <button
+              onClick={() => void exportRecipe()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+              title="Export a shareable recipe (software, version, plugins/mods, config — no world)"
+            >
+              <FileJson size={13} /> {exportedRecipe ? 'Exported!' : 'Export recipe'}
             </button>
           </div>
         </div>
@@ -396,6 +478,128 @@ export function SettingsView({
           </div>
         )}
       </section>
+
+      {/* Dev-project link */}
+      {canDevLink && (
+        <section className="rounded-brand border border-border bg-surface p-4">
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <Hammer size={15} /> Dev project link
+            </h2>
+            <label className="flex cursor-pointer items-center gap-2 text-xs text-fg-muted">
+              <input
+                type="checkbox"
+                checked={devEnabled}
+                onChange={(e) => setDevEnabled(e.target.checked)}
+                className="h-4 w-4 accent-[var(--c-accent)]"
+              />
+              Enabled
+            </label>
+          </div>
+          <p className="mb-3 text-xs text-fg-muted">
+            Link a Gradle/Maven plugin or mod project. Every time you build, the freshest jar is
+            copied into <code className="rounded bg-input px-1 font-mono">{contentDirOf(instance.serverType)}/</code>{' '}
+            automatically (replacing the previous build), and the server restarts or runs a command.
+          </p>
+
+          {devEnabled && (
+            <div className="space-y-4">
+              <Labeled label="Project folder">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={devProject}
+                      onChange={(e) => setDevProject(e.target.value)}
+                      placeholder="D:\\code\\my-plugin"
+                      className="w-full rounded-md bg-input px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void pickProject()}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-3 py-2 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+                    >
+                      <FolderOpen size={13} /> Browse
+                    </button>
+                  </div>
+                  {devSystem && (
+                    <span className="mt-1 block text-[11px] text-emerald-400">
+                      Detected a {devSystem === 'gradle' ? 'Gradle' : 'Maven'} project.
+                    </span>
+                  )}
+                </div>
+              </Labeled>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Labeled label="Build output folder (relative)">
+                  <input
+                    value={devOut}
+                    onChange={(e) => setDevOut(e.target.value)}
+                    placeholder="build/libs"
+                    className="w-full rounded-md bg-input px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </Labeled>
+                <Labeled label="Debounce (ms)">
+                  <input
+                    type="number"
+                    min={200}
+                    step={100}
+                    value={devDebounce}
+                    onChange={(e) => setDevDebounce(Number(e.target.value))}
+                    className="w-full rounded-md bg-input px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </Labeled>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Labeled label="After deploying (while running)">
+                  <select
+                    value={devAction}
+                    onChange={(e) => setDevAction(e.target.value as WatchAction)}
+                    className="w-full rounded-md bg-input px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="restart">Restart the server</option>
+                    <option value="command">Run a console command</option>
+                  </select>
+                </Labeled>
+                {devAction === 'command' && (
+                  <Labeled label="Console command">
+                    <input
+                      value={devCommand}
+                      onChange={(e) => setDevCommand(e.target.value)}
+                      placeholder="reload confirm"
+                      className="w-full rounded-md bg-input px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
+                    />
+                  </Labeled>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void deployNow()}
+                  disabled={deploying || devDirty || !devProject.trim()}
+                  title={devDirty ? 'Save your changes first' : 'Copy the newest built jar now'}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-40"
+                >
+                  {deploying ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <UploadCloud size={13} />
+                  )}
+                  Deploy now
+                </button>
+                {devDirty && <span className="text-[11px] text-fg-muted">Save changes to enable</span>}
+                {deployMsg && <span className="truncate text-[11px] text-fg-muted">{deployMsg}</span>}
+                {initialDev.lastDeployedJar && !deployMsg && (
+                  <span className="truncate text-[11px] text-fg-muted">
+                    Last deployed: {initialDev.lastDeployedJar}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Remote debugging (JDWP) */}
       <section className="rounded-brand border border-border bg-surface p-4">

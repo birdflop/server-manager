@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AppConfig,
   ManagerIndex,
+  ServerPerfEvent,
   ServerStatus,
   ThemeName,
   UpdateStatus
@@ -26,6 +27,10 @@ interface AppState {
   stats: Record<string, { cpu: number; memMB: number }>
   /** Rolling CPU/RAM samples per instance id (most recent last), for sparklines. */
   statsHistory: Record<string, { cpu: number; memMB: number }[]>
+  /** Latest tick metrics (TPS/MSPT) per running instance id. */
+  perf: Record<string, ServerPerfEvent>
+  /** Rolling TPS/MSPT samples per instance id (most recent last), for sparklines. */
+  perfHistory: Record<string, { tps: number; mspt?: number }[]>
 
   // lifecycle
   init: () => Promise<void>
@@ -91,6 +96,8 @@ export const useApp = create<AppState>((set, get) => ({
   status: {},
   stats: {},
   statsHistory: {},
+  perf: {},
+  perfHistory: {},
 
   init: async () => {
     const config = await window.api.getConfig()
@@ -104,11 +111,17 @@ export const useApp = create<AppState>((set, get) => ({
     window.api.onServerStatus((e) =>
       set((s) => {
         const stats = { ...s.stats }
-        if (e.status === 'stopped') delete stats[e.id]
+        const perf = { ...s.perf }
+        if (e.status === 'stopped') {
+          delete stats[e.id]
+          delete perf[e.id]
+        }
         // Start each run with a clean performance history.
         const statsHistory =
           e.status === 'starting' ? { ...s.statsHistory, [e.id]: [] } : s.statsHistory
-        return { status: { ...s.status, [e.id]: e.status }, stats, statsHistory }
+        const perfHistory =
+          e.status === 'starting' ? { ...s.perfHistory, [e.id]: [] } : s.perfHistory
+        return { status: { ...s.status, [e.id]: e.status }, stats, statsHistory, perf, perfHistory }
       })
     )
     window.api.onServerStats((e) =>
@@ -120,6 +133,19 @@ export const useApp = create<AppState>((set, get) => ({
           stats: { ...s.stats, [e.id]: { cpu: e.cpu, memMB: e.memMB } },
           statsHistory: { ...s.statsHistory, [e.id]: next }
         }
+      })
+    )
+    window.api.onServerPerf((e) =>
+      set((s) => {
+        const perfHistory =
+          e.tps !== undefined
+            ? {
+                ...s.perfHistory,
+                // ~120 samples ≈ 10 min at the 5s poll interval.
+                [e.id]: [...(s.perfHistory[e.id] ?? []), { tps: e.tps, mspt: e.mspt }].slice(-120)
+              }
+            : s.perfHistory
+        return { perf: { ...s.perf, [e.id]: e }, perfHistory }
       })
     )
     // Auto-update status + app version.

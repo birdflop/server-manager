@@ -4,6 +4,9 @@ import { writeFileSync, mkdirSync, existsSync } from 'node:fs'
 import { registerIpc } from './ipc'
 import { runSelfTest } from './selftest'
 import { stopAll, runningIds } from './servers/registry'
+import { syncAllDevLinks, stopAllDevLinks } from './servers/devlink'
+import { initBackupScheduler, stopAllBackupSchedules } from './servers/backup-scheduler'
+import { stopAllBots } from './servers/bots'
 import { stopAllTunnels } from './tunnels/registry'
 import { initUpdater, checkForUpdates } from './updater'
 import { getConfig } from './config'
@@ -189,6 +192,11 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
 
+  // Attach dev-link watchers for servers that had them enabled last session.
+  const { rootPath } = getConfig()
+  if (rootPath) syncAllDevLinks(rootPath)
+  initBackupScheduler()
+
   // Check for updates shortly after launch (no-op in dev).
   setTimeout(() => void checkForUpdates(), 4000)
 
@@ -207,7 +215,10 @@ app.on('before-quit', (e) => {
     }
     return
   }
+  stopAllBots()
   stopAll()
+  stopAllDevLinks()
+  stopAllBackupSchedules()
   stopAllTunnels()
 })
 

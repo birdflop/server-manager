@@ -78,10 +78,22 @@ export interface Instance {
   backends?: ProxyBackend[]
   /** Auto-restart-on-file-change config (undefined = disabled). */
   watch?: WatchConfig
+  /** Dev-project link: auto-deploy built jars from a local project (undefined = disabled). */
+  devLink?: DevLinkConfig
   /** Tunnel/share preferences (undefined = never configured). */
   tunnel?: TunnelConfig
   /** Remote JVM debugging (JDWP) config (undefined = disabled). */
   debug?: DebugConfig
+  /** App-managed local RCON access (auto-provisioned for TPS polling; undefined until first start). */
+  rcon?: RconConfig
+  /** Automatic backup schedule (undefined = disabled). */
+  backup?: BackupScheduleConfig
+}
+
+/** App-managed RCON credentials for silent command execution (TPS polling, etc.). */
+export interface RconConfig {
+  port: number
+  password: string
 }
 
 /** What the file watcher does when a watched path changes. */
@@ -131,6 +143,43 @@ export interface DebugConfig {
 
 /** Default remote-debug config for a freshly-enabled debugger. */
 export const DEFAULT_DEBUG: DebugConfig = { enabled: false, port: 5005, suspend: false }
+
+/**
+ * Links a server to a local plugin/mod project. The app watches the project's build
+ * output folder; when a fresh jar appears it's copied into the server's plugins/mods
+ * folder (replacing the previously deployed version) and the configured action runs.
+ */
+export interface DevLinkConfig {
+  enabled: boolean
+  /** Absolute path to the project root (where build.gradle / pom.xml lives). */
+  projectPath: string
+  /** Build output folder relative to the project root (e.g. "build/libs", "target"). */
+  outputDir: string
+  /** What to do after deploying while the server is running. */
+  action: WatchAction
+  /** For action='command': the console command to send (e.g. "reload confirm"). */
+  command?: string
+  /** How long to wait after the last output change before deploying, in milliseconds. */
+  debounceMs: number
+  /** The jar name we last deployed, so old versions are replaced instead of piling up. */
+  lastDeployedJar?: string
+}
+
+/** Default dev-link config for a freshly-enabled link. */
+export const DEFAULT_DEVLINK: DevLinkConfig = {
+  enabled: false,
+  projectPath: '',
+  outputDir: '',
+  action: 'restart',
+  debounceMs: 1500
+}
+
+/** Result of sniffing a project folder for its build system. */
+export interface BuildSystemInfo {
+  system: 'gradle' | 'maven' | null
+  /** Conventional build output folder for that system ('' when unknown). */
+  outputDir: string
+}
 
 /** A backend server a proxy forwards players to. */
 export interface ProxyBackend {
@@ -258,6 +307,41 @@ export interface ServerStatsEvent {
   memMB: number
 }
 
+/** Where a server's tick metrics come from. */
+export type PerfSource = 'builtin' | 'spark' | 'none'
+
+/** Live tick metrics for a running server (polled silently over RCON). */
+export interface ServerPerfEvent {
+  id: string
+  source: PerfSource
+  /** Ticks per second (20 = perfect). */
+  tps?: number
+  /** Milliseconds per tick (50+ = overloaded). */
+  mspt?: number
+}
+
+/** Options for a fake-player load test. */
+export interface BotsOptions {
+  /** How many bots to connect (staggered joins). */
+  count: number
+  /** Bots wander around (random walk with jumps). */
+  move: boolean
+  /** Bots send an occasional chat message. */
+  chat: boolean
+}
+
+/** Live state of a server's fake-player session. */
+export interface BotsStatusEvent {
+  id: string
+  running: boolean
+  /** How many bots the session is aiming for. */
+  target: number
+  /** How many are connected right now. */
+  connected: number
+  /** Last error / kick reason, when something went wrong. */
+  message?: string
+}
+
 /** A best-effort explanation emitted when a server exits abnormally. */
 export interface ServerDiagnosisEvent {
   id: string
@@ -278,7 +362,17 @@ export interface BirdflopTunnelIdentity {
 }
 
 /** Lifecycle state of a server's tunnel. */
-export type TunnelState = 'offline' | 'starting' | 'online' | 'error'
+export type TunnelState = 'offline' | 'starting' | 'online' | 'reconnecting' | 'error'
+
+/** Live traffic statistics for one tunnel (pushed by the Birdflop relay). */
+export interface TunnelStats {
+  /** Player connections open through the tunnel right now. */
+  activeConnections: number
+  /** Player connections since the tunnel registered. */
+  totalConnections: number
+  /** Bytes proxied in both directions since the tunnel registered. */
+  bytes: number
+}
 
 /** Live tunnel info for one instance. */
 export interface TunnelInfo {
@@ -288,6 +382,8 @@ export interface TunnelInfo {
   publicAddress?: string
   /** Human-readable status / progress / error message. */
   message?: string
+  /** Live traffic stats, when the provider reports them (Birdflop). */
+  stats?: TunnelStats
 }
 
 /** A tunnel status change broadcast for an instance (id = instance id). */
@@ -307,6 +403,38 @@ export interface TunnelProviderStatus {
   message?: string
 }
 
+/** Result of inspecting a server's auth setup before exposing it publicly. */
+export interface ShareSafety {
+  /**
+   * Whether the check could inspect the server's config. False for proxies
+   * (per-platform configs) and servers without a server.properties yet.
+   */
+  checked: boolean
+  /** Whether online-mode (Mojang authentication) is enabled. */
+  onlineMode?: boolean
+  /** Whether the whitelist is enabled. */
+  whitelist?: boolean
+  /** True when anyone — including cracked clients — could join once shared. */
+  risky: boolean
+}
+
+/** One-click remediations for a risky share. */
+export type ShareSafetyFix = 'online-mode' | 'whitelist'
+
+/** State of Bedrock crossplay (GeyserMC) for a server. */
+export interface BedrockStatus {
+  /** Whether Geyser publishes builds for this server type. */
+  supported: boolean
+  /** A Geyser jar is present in plugins/mods. */
+  installed: boolean
+  /** A Floodgate jar is present (Bedrock players don't need a Java account). */
+  floodgate: boolean
+  /** UDP port Geyser listens on for Bedrock clients. */
+  port: number
+  /** LAN address ("192.168.x.x:19132") phones on the same network can join, if detectable. */
+  lanAddress: string | null
+}
+
 /** Per-instance tunnel preferences. */
 export interface TunnelConfig {
   provider: TunnelProviderId
@@ -319,11 +447,103 @@ export interface TunnelConfig {
   label?: string
 }
 
+// ---- Compatibility runs (test matrix CI) ----
+
+/** Lifecycle of one server's slot in a compatibility run. */
+export type CompatCellStatus =
+  | 'queued'
+  | 'starting'
+  | 'testing'
+  | 'stopping'
+  | 'pass'
+  | 'warn'
+  | 'fail'
+  | 'skipped'
+
+/** A notable log line found while a compat-run server was starting. */
+export interface CompatIssue {
+  /** 'error' = known fatal load/enable failure; 'warn' = suspicious but possibly benign. */
+  severity: 'error' | 'warn'
+  line: string
+}
+
+/** Outcome of one smoke command sent to a ready compat-run server. */
+export interface CompatSmokeResult {
+  command: string
+  /** False when the output contained an unknown-command/error marker. */
+  ok: boolean
+  /** Console output captured in the window after the command was sent. */
+  output: string
+}
+
+/** Result slot for one server in a compatibility run. */
+export interface CompatCell {
+  instanceId: string
+  name: string
+  mcVersion: string
+  status: CompatCellStatus
+  /** Short human summary shown in the grid row. */
+  message?: string
+  /** Milliseconds from launch to the ready line, when the server got there. */
+  readyMs?: number
+  /** Exit code when the server died during startup. */
+  exitCode?: number | null
+  issues: CompatIssue[]
+  smoke: CompatSmokeResult[]
+}
+
+/** A whole compatibility run: boot every server in turn and grade the result. */
+export interface CompatRun {
+  id: string
+  startedAt: number
+  state: 'running' | 'done' | 'cancelled'
+  readyTimeoutMs: number
+  smokeCommands: string[]
+  cells: CompatCell[]
+}
+
+/** Options for starting a compatibility run. */
+export interface CompatRunOptions {
+  /** Console commands sent to each server once it's ready (one per entry). */
+  smokeCommands: string[]
+  /** How long to wait for the ready line before failing the cell. */
+  readyTimeoutMs?: number
+}
+
 /** A saved backup archive for an instance. */
 export interface BackupInfo {
   name: string
   size: number
   createdAt: number
+  /** How the backup came to be: user-made, scheduled, or the safety snapshot before a restore. */
+  kind: 'manual' | 'auto' | 'pre-restore'
+}
+
+/** Per-instance automatic backup schedule (runs only while the server is running). */
+export interface BackupScheduleConfig {
+  enabled: boolean
+  /** Hours between automatic backups. */
+  intervalHours: number
+  /** Keep at most this many automatic backups; the oldest are deleted first. */
+  keep: number
+}
+
+/** Default schedule for a freshly-enabled automatic backup. */
+export const DEFAULT_BACKUP_SCHEDULE: BackupScheduleConfig = {
+  enabled: false,
+  intervalHours: 6,
+  keep: 10
+}
+
+/** A world folder inside a server (folder with a level.dat). */
+export interface WorldInfo {
+  name: string
+  /** Total size in bytes, including Paper's companion dimension folders. */
+  size: number
+  /** Whether server.properties points at this world (level-name). */
+  active: boolean
+  /** Datapacks installed in this world's datapacks folder. */
+  datapacks: string[]
 }
 
 /** Payload for importing an existing server folder as a new instance. */
@@ -338,6 +558,38 @@ export interface ImportInstancePayload {
   ramMB: number
   javaPath: string
   jvmArgs: string[]
+  groupId: string | null
+}
+
+/**
+ * A shareable server definition: everything needed to reproduce a server environment
+ * (software, version, content list, config overrides) without shipping any world data.
+ * Saved as a small .bsmrecipe JSON file.
+ */
+export interface ServerRecipe {
+  format: 1
+  name: string
+  serverType: ServerType
+  mcVersion: string
+  build: string
+  ramMB: number
+  jvmArgs: string[]
+  /** server.properties overrides (secrets and machine-specific keys stripped). */
+  properties: Record<string, string>
+  /** Tracked plugins/mods, re-downloadable from their source. */
+  content: { source: ContentSource; projectId: string; name: string; versionNumber?: string }[]
+  /** Content files with unknown provenance — listed so the importer knows what's missing. */
+  untracked: string[]
+}
+
+/** Payload for creating a server from a recipe file. */
+export interface RecipeImportPayload {
+  path: string
+  name: string
+  port: number
+  ramMB: number
+  javaPath: string
+  eulaAccepted: boolean
   groupId: string | null
 }
 
@@ -501,7 +753,19 @@ export interface BirdflopApi {
   updateInstance(
     id: string,
     patch: Partial<
-      Pick<Instance, 'name' | 'port' | 'ramMB' | 'javaPath' | 'jvmArgs' | 'watch' | 'tunnel' | 'debug'>
+      Pick<
+        Instance,
+        | 'name'
+        | 'port'
+        | 'ramMB'
+        | 'javaPath'
+        | 'jvmArgs'
+        | 'watch'
+        | 'devLink'
+        | 'tunnel'
+        | 'debug'
+        | 'backup'
+      >
     >
   ): Promise<{ instance: Instance; index: ManagerIndex } | null>
   /** Delete a server (folder + index entry). */
@@ -527,6 +791,16 @@ export interface BirdflopApi {
   /** Wire Velocity modern forwarding across a proxy's managed backends. */
   setupVelocityForwarding(id: string): Promise<ForwardingResult>
 
+  // Server recipes (shareable environment definitions)
+  /** Export a server as a .bsmrecipe file (opens a save dialog). Returns the path or null. */
+  exportRecipe(id: string): Promise<string | null>
+  /** Pick + parse a .bsmrecipe file for preview. Null if cancelled. */
+  pickRecipe(): Promise<{ path: string; recipe: ServerRecipe } | null>
+  /** Create a server from a recipe. Progress via onInstallProgress; returns install warnings. */
+  importRecipe(
+    payload: RecipeImportPayload
+  ): Promise<{ instance: Instance; index: ManagerIndex; warnings: string[] }>
+
   // Backups
   listBackups(id: string): Promise<BackupInfo[]>
   createBackup(id: string): Promise<BackupInfo[]>
@@ -547,6 +821,18 @@ export interface BirdflopApi {
   onServerOutput(cb: (e: ServerOutputEvent) => void): () => void
   onServerStatus(cb: (e: ServerStatusEvent) => void): () => void
   onServerStats(cb: (e: ServerStatsEvent) => void): () => void
+  /** Subscribe to live TPS/MSPT samples for running servers. Returns an unsubscribe fn. */
+  onServerPerf(cb: (e: ServerPerfEvent) => void): () => void
+
+  // Fake-player load testing
+  /** Current bot session state for a server. */
+  getBots(id: string): Promise<BotsStatusEvent>
+  /** Connect N test bots to a running offline-mode server. */
+  startBots(id: string, opts: BotsOptions): Promise<void>
+  /** Disconnect all test bots from a server. */
+  stopBots(id: string): Promise<void>
+  /** Subscribe to bot session changes. Returns an unsubscribe fn. */
+  onBotsStatus(cb: (e: BotsStatusEvent) => void): () => void
 
   // Content (plugins / mods)
   listContent(id: string): Promise<ContentFile[]>
@@ -605,6 +891,48 @@ export interface BirdflopApi {
   stopTunnel(id: string): Promise<void>
   /** Subscribe to tunnel status changes. Returns an unsubscribe fn. */
   onTunnelStatus(cb: (e: TunnelStatusEvent) => void): () => void
+  /** Inspect a server's auth setup (online-mode/whitelist) before sharing. */
+  getShareSafety(id: string): Promise<ShareSafety>
+  /** Apply a one-click share-safety fix to server.properties. */
+  applyShareSafetyFix(id: string, fix: ShareSafetyFix): Promise<ShareSafety>
+  /** State of Bedrock crossplay (Geyser) for a server. */
+  getBedrockStatus(id: string): Promise<BedrockStatus>
+  /** Install Geyser (+ Floodgate where available) for Bedrock crossplay. */
+  installBedrock(id: string): Promise<{ status: BedrockStatus; warning?: string }>
+
+  // Worlds
+  /** Worlds inside a server (folders with a level.dat), active first. */
+  listWorlds(id: string): Promise<WorldInfo[]>
+  /** Point level-name at another world (takes effect on next start). */
+  setActiveWorld(id: string, name: string): Promise<WorldInfo[]>
+  /** Delete a non-active world's files (including dimension companions). */
+  deleteWorld(id: string, name: string): Promise<WorldInfo[]>
+  /** Delete a world's files + set level-seed so it regenerates on next start. */
+  regenerateWorld(id: string, name: string, seed: string): Promise<WorldInfo[]>
+  /** Export a world as a zip (opens a save dialog). Returns the path or null if cancelled. */
+  exportWorld(id: string, name: string): Promise<string | null>
+  /** Import a world zip as a new world (opens a file picker). Null if cancelled. */
+  importWorld(id: string): Promise<WorldInfo[] | null>
+  /** Add datapack zips to a world (opens a file picker). Null if cancelled. */
+  addDatapacks(id: string, world: string): Promise<WorldInfo[] | null>
+  /** Remove a datapack from a world. */
+  deleteDatapack(id: string, world: string, name: string): Promise<WorldInfo[]>
+
+  // Dev-project link
+  /** Sniff a project folder for its build system (Gradle/Maven) + conventional output dir. */
+  detectBuildSystem(projectPath: string): Promise<BuildSystemInfo>
+  /** Deploy the newest built jar from a server's linked project right now. Returns the jar name. */
+  deployDevLink(id: string): Promise<string>
+
+  // Compatibility runs (test matrix CI)
+  /** Boot each server in turn, grade startup + smoke commands. Progress via onCompatProgress. */
+  startCompatRun(instanceIds: string[], opts: CompatRunOptions): Promise<CompatRun>
+  /** Cancel the in-flight compatibility run (finishes the current server, skips the rest). */
+  cancelCompatRun(): Promise<void>
+  /** The current (or last finished) compatibility run, if any. */
+  getCompatRun(): Promise<CompatRun | null>
+  /** Subscribe to compatibility-run progress snapshots. Returns an unsubscribe fn. */
+  onCompatProgress(cb: (run: CompatRun) => void): () => void
 
   // App + updater
   /** The running app's version (from package.json). */

@@ -173,6 +173,12 @@ async function installModrinthProject(
 
 const MAX_DEP_DEPTH = 5
 
+/** filename → install provenance for a server's content folder (recipes, update checks). */
+export function contentMeta(root: string, id: string): ContentMetaMap {
+  const dir = contentDir(root, id)
+  return dir ? readMeta(dir) : {}
+}
+
 export async function contentInstall(
   root: string,
   id: string,

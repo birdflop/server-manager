@@ -1,10 +1,13 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   BirdflopApi,
+  BotsStatusEvent,
+  CompatRun,
   InstallProgress,
   JavaProgress,
   ServerDiagnosisEvent,
   ServerOutputEvent,
+  ServerPerfEvent,
   ServerStatsEvent,
   ServerStatusEvent,
   TunnelStatusEvent,
@@ -62,6 +65,9 @@ const api: BirdflopApi = {
   pickModpack: () => ipcRenderer.invoke('dialog:pickModpack'),
   importModpack: (payload) => ipcRenderer.invoke('instances:importModpack', payload),
   setupVelocityForwarding: (id) => ipcRenderer.invoke('proxy:setupForwarding', id),
+  exportRecipe: (id) => ipcRenderer.invoke('recipes:export', id),
+  pickRecipe: () => ipcRenderer.invoke('recipes:pick'),
+  importRecipe: (payload) => ipcRenderer.invoke('recipes:import', payload),
   listBackups: (id) => ipcRenderer.invoke('backups:list', id),
   createBackup: (id) => ipcRenderer.invoke('backups:create', id),
   restoreBackup: (id, name) => ipcRenderer.invoke('backups:restore', id, name),
@@ -88,6 +94,19 @@ const api: BirdflopApi = {
     const listener = (_e: unknown, ev: ServerStatsEvent): void => cb(ev)
     ipcRenderer.on('server:stats', listener)
     return () => ipcRenderer.removeListener('server:stats', listener)
+  },
+  onServerPerf: (cb) => {
+    const listener = (_e: unknown, ev: ServerPerfEvent): void => cb(ev)
+    ipcRenderer.on('server:perf', listener)
+    return () => ipcRenderer.removeListener('server:perf', listener)
+  },
+  getBots: (id) => ipcRenderer.invoke('bots:get', id),
+  startBots: (id, opts) => ipcRenderer.invoke('bots:start', id, opts),
+  stopBots: (id) => ipcRenderer.invoke('bots:stop', id),
+  onBotsStatus: (cb) => {
+    const listener = (_e: unknown, ev: BotsStatusEvent): void => cb(ev)
+    ipcRenderer.on('bots:status', listener)
+    return () => ipcRenderer.removeListener('bots:status', listener)
   },
 
   listContent: (id) => ipcRenderer.invoke('content:list', id),
@@ -127,6 +146,31 @@ const api: BirdflopApi = {
     const listener = (_e: unknown, ev: TunnelStatusEvent): void => cb(ev)
     ipcRenderer.on('tunnel:status', listener)
     return () => ipcRenderer.removeListener('tunnel:status', listener)
+  },
+  getShareSafety: (id) => ipcRenderer.invoke('tunnel:safety', id),
+  applyShareSafetyFix: (id, fix) => ipcRenderer.invoke('tunnel:fixSafety', id, fix),
+  getBedrockStatus: (id) => ipcRenderer.invoke('bedrock:status', id),
+  installBedrock: (id) => ipcRenderer.invoke('bedrock:install', id),
+
+  listWorlds: (id) => ipcRenderer.invoke('worlds:list', id),
+  setActiveWorld: (id, name) => ipcRenderer.invoke('worlds:setActive', id, name),
+  deleteWorld: (id, name) => ipcRenderer.invoke('worlds:delete', id, name),
+  regenerateWorld: (id, name, seed) => ipcRenderer.invoke('worlds:regenerate', id, name, seed),
+  exportWorld: (id, name) => ipcRenderer.invoke('worlds:export', id, name),
+  importWorld: (id) => ipcRenderer.invoke('worlds:import', id),
+  addDatapacks: (id, world) => ipcRenderer.invoke('worlds:addDatapacks', id, world),
+  deleteDatapack: (id, world, name) => ipcRenderer.invoke('worlds:deleteDatapack', id, world, name),
+
+  detectBuildSystem: (projectPath) => ipcRenderer.invoke('devlink:detect', projectPath),
+  deployDevLink: (id) => ipcRenderer.invoke('devlink:deploy', id),
+
+  startCompatRun: (instanceIds, opts) => ipcRenderer.invoke('compat:start', instanceIds, opts),
+  cancelCompatRun: () => ipcRenderer.invoke('compat:cancel'),
+  getCompatRun: () => ipcRenderer.invoke('compat:get'),
+  onCompatProgress: (cb) => {
+    const listener = (_e: unknown, run: CompatRun): void => cb(run)
+    ipcRenderer.on('compat:progress', listener)
+    return () => ipcRenderer.removeListener('compat:progress', listener)
   },
 
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),

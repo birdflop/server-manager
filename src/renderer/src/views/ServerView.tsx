@@ -15,7 +15,8 @@ import {
   FolderTree,
   Share2,
   SlidersHorizontal,
-  Bug
+  Bug,
+  Globe
 } from 'lucide-react'
 import type { ContentUpdate, Instance, ServerStatus } from '@shared/types'
 import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf, isProxy } from '@shared/software'
@@ -31,12 +32,14 @@ import { PerformanceView } from './PerformanceView'
 import { ProxyBackendsView } from './ProxyBackendsView'
 import { FilesView } from './FilesView'
 import { ShareView } from './ShareView'
+import { WorldsView } from './WorldsView'
 
 type SubId =
   | 'console'
   | 'content'
   | 'backends'
   | 'properties'
+  | 'worlds'
   | 'files'
   | 'performance'
   | 'backups'
@@ -99,6 +102,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
       : []),
     ...(proxy ? [{ id: 'backends' as SubId, label: 'Backends', icon: Network }] : []),
     ...(!proxy ? [{ id: 'properties' as SubId, label: 'Properties', icon: SlidersHorizontal }] : []),
+    ...(!proxy ? [{ id: 'worlds' as SubId, label: 'Worlds', icon: Globe }] : []),
     { id: 'files', label: 'Files', icon: FolderTree },
     { id: 'performance', label: 'Performance', icon: Activity },
     { id: 'backups', label: 'Backups', icon: Archive },
@@ -209,6 +213,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
         )}
         {sub === 'backends' && <ProxyBackendsView instance={instance} status={status} />}
         {sub === 'properties' && <PropertiesView instanceId={instanceId} status={status} />}
+        {sub === 'worlds' && <WorldsView instanceId={instanceId} status={status} />}
         {sub === 'files' && <FilesView instanceId={instanceId} />}
         {sub === 'performance' && <PerformanceView instance={instance} />}
         {sub === 'backups' && <BackupsView instanceId={instanceId} status={status} />}
