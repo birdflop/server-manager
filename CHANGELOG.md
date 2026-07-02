@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0](https://github.com/birdflop/server-manager/compare/v0.6.0...v0.7.0) (2026-06-30)
+
+
+### Features
+
+* add console macros, templates, modpack import, dep resolution, and Velocity forwarding ([96849f0](https://github.com/birdflop/server-manager/commit/96849f0e0795c7faea06b6ab495a958defa67e1e))
+* better tunnel stuff ([501eb63](https://github.com/birdflop/server-manager/commit/501eb63214f91cb48f04cc130820a5f04f19cd1b))
+* birdflop specific tunnel setup ([c839f87](https://github.com/birdflop/server-manager/commit/c839f87d192645a93251b0c849d945ebba0334f2))
+* color code support ([89331c2](https://github.com/birdflop/server-manager/commit/89331c2e886178520e76c050b2d06b19f51233b4))
+* console colors, server.properties editor, remote debug, and test matrix ([bb19caa](https://github.com/birdflop/server-manager/commit/bb19caa9a99c1634333662b36ffc005337d43349))
+
+
+### Bug Fixes
+
+* color codes being stripped ([f6f8e57](https://github.com/birdflop/server-manager/commit/f6f8e57379602eabc53ff99b42a5a10f2f28cd47))
+* dev builds ([660c74f](https://github.com/birdflop/server-manager/commit/660c74f788de619a694ee2657dce15871a40398a))
+* for real fix terminal colors? ([6b48ebb](https://github.com/birdflop/server-manager/commit/6b48ebbe73b786eae3a947bd5ad029531d713eb4))
+* java scan freezing app ([c839f87](https://github.com/birdflop/server-manager/commit/c839f87d192645a93251b0c849d945ebba0334f2))
+
 ## [0.6.0](https://github.com/birdflop/server-manager/compare/v0.5.0...v0.6.0) (2026-06-25)
 
 
