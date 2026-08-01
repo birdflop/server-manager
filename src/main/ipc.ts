@@ -46,6 +46,7 @@ import {
   applyUpdateChannel
 } from './updater'
 import { installServer } from './servers/install'
+import { previewLaunch } from './servers/launch'
 import { importModpack } from './modpack'
 import {
   writeEula,
@@ -99,13 +100,22 @@ import {
 } from './servers/content'
 import {
   listFiles,
+  listFilesDeep,
   readFile as readInstanceFile,
   writeFile as writeInstanceFile,
   detectEditors,
   openInEditor,
   instanceSubdir
 } from './servers/files'
-import type { ContentSource } from '@shared/types'
+import type { ContentSource, PteroClonePayload, PteroPowerAction } from '@shared/types'
+import * as ptero from './pterodactyl/api'
+import { cloneServer as clonePanelServer, prepareClone } from './pterodactyl/clone'
+import {
+  closeAllConsoles,
+  closeConsole,
+  openConsole,
+  sendViaConsole
+} from './pterodactyl/console'
 
 /** Resolve the current data root or throw if it hasn't been chosen yet. */
 function requireRoot(): string {
@@ -358,6 +368,13 @@ export function registerIpc(): void {
   )
   ipcMain.handle('instances:listFolderJars', (_e, path: string) => listFolderJars(path))
 
+  ipcMain.handle('instances:launchPreview', (_e, id: string, patch?: Partial<Instance>) => {
+    const root = requireRoot()
+    const inst = readInstance(root, id)
+    if (!inst) throw new Error('Server not found')
+    return previewLaunch({ ...inst, ...patch }, instanceDir(root, id))
+  })
+
   ipcMain.handle('dialog:pickModpack', async (): Promise<string | null> => {
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
     const opts = {
@@ -453,6 +470,7 @@ export function registerIpc(): void {
   ipcMain.handle('files:list', (_e, id: string, relPath: string) =>
     listFiles(requireRoot(), id, relPath)
   )
+  ipcMain.handle('files:listDeep', (_e, id: string) => listFilesDeep(requireRoot(), id))
   ipcMain.handle('files:read', (_e, id: string, relPath: string) =>
     readInstanceFile(requireRoot(), id, relPath)
   )
@@ -650,6 +668,99 @@ export function registerIpc(): void {
   )
   ipcMain.handle('compat:cancel', () => cancelCompatRun())
   ipcMain.handle('compat:get', () => getCompatRun())
+
+  // ---- Pterodactyl panel (remote servers) ----
+  ipcMain.handle('ptero:status', () => ptero.status())
+  ipcMain.handle('ptero:connect', (_e, panelUrl: string, apiKey: string) =>
+    ptero.connect(panelUrl, apiKey)
+  )
+  ipcMain.handle('ptero:disconnect', () => {
+    closeAllConsoles()
+    ptero.disconnect()
+  })
+  ipcMain.handle('ptero:listServers', () => ptero.listServers())
+  ipcMain.handle('ptero:resources', (_e, serverId: string) => ptero.resources(serverId))
+  ipcMain.handle('ptero:power', (_e, serverId: string, action: PteroPowerAction) =>
+    ptero.power(serverId, action)
+  )
+  ipcMain.handle('ptero:command', (_e, serverId: string, command: string) => {
+    // Prefer the live socket (echoes into the console immediately); HTTP fallback.
+    if (!sendViaConsole(serverId, command)) return ptero.sendCommand(serverId, command)
+    return undefined
+  })
+  ipcMain.handle('ptero:openConsole', (_e, serverId: string) => openConsole(serverId))
+  ipcMain.handle('ptero:closeConsole', (_e, serverId: string) => closeConsole(serverId))
+
+  // Remote files
+  ipcMain.handle('ptero:listFiles', (_e, serverId: string, dir: string) =>
+    ptero.listFiles(serverId, dir)
+  )
+  ipcMain.handle('ptero:readFile', (_e, serverId: string, path: string) =>
+    ptero.readFile(serverId, path)
+  )
+  ipcMain.handle('ptero:writeFile', (_e, serverId: string, path: string, content: string) =>
+    ptero.writeFile(serverId, path, content)
+  )
+  ipcMain.handle('ptero:renameFile', (_e, serverId: string, dir: string, from: string, to: string) =>
+    ptero.renameFile(serverId, dir, from, to)
+  )
+  ipcMain.handle('ptero:deleteFiles', (_e, serverId: string, dir: string, names: string[]) =>
+    ptero.deleteFiles(serverId, dir, names)
+  )
+  ipcMain.handle('ptero:createFolder', (_e, serverId: string, dir: string, name: string) =>
+    ptero.createFolder(serverId, dir, name)
+  )
+  ipcMain.handle('ptero:downloadFile', async (_e, serverId: string, path: string) => {
+    await shell.openExternal(await ptero.fileDownloadUrl(serverId, path))
+  })
+  ipcMain.handle('ptero:uploadFiles', async (_e, serverId: string, dir: string) => {
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+    const opts = {
+      title: 'Upload files to the server',
+      properties: ['openFile', 'multiSelections'] as Array<'openFile' | 'multiSelections'>
+    }
+    const result = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
+    if (result.canceled || result.filePaths.length === 0) return null
+    await ptero.uploadFiles(serverId, dir, result.filePaths)
+    return ptero.listFiles(serverId, dir)
+  })
+
+  // Remote backups
+  ipcMain.handle('ptero:listBackups', (_e, serverId: string) => ptero.listBackups(serverId))
+  ipcMain.handle('ptero:createBackup', async (_e, serverId: string) => {
+    await ptero.createBackup(serverId)
+    return ptero.listBackups(serverId)
+  })
+  ipcMain.handle('ptero:restoreBackup', (_e, serverId: string, uuid: string) =>
+    ptero.restoreBackup(serverId, uuid)
+  )
+  ipcMain.handle('ptero:deleteBackup', async (_e, serverId: string, uuid: string) => {
+    await ptero.deleteBackup(serverId, uuid)
+    return ptero.listBackups(serverId)
+  })
+  ipcMain.handle('ptero:downloadBackup', async (_e, serverId: string, uuid: string) => {
+    await shell.openExternal(await ptero.backupDownloadUrl(serverId, uuid))
+  })
+
+  // Clone a remote server into a local instance (one at a time, cancellable).
+  // Progress goes over its own channel so it can't cross-talk with the create wizard.
+  let cloneAbort: AbortController | null = null
+  ipcMain.handle('ptero:clonePrepare', (_e, serverId: string) => prepareClone(serverId))
+  ipcMain.handle('ptero:clone', async (e, payload: PteroClonePayload) => {
+    const controller = new AbortController()
+    cloneAbort = controller
+    try {
+      return await clonePanelServer(
+        requireRoot(),
+        payload,
+        (p) => e.sender.send('ptero:cloneProgress', p),
+        controller.signal
+      )
+    } finally {
+      if (cloneAbort === controller) cloneAbort = null
+    }
+  })
+  ipcMain.handle('ptero:cloneCancel', () => cloneAbort?.abort())
 
   // ---- App + updater ----
   ipcMain.handle('app:getVersion', () => app.getVersion())

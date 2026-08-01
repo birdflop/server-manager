@@ -11,7 +11,8 @@ import {
   Trash2,
   Check,
   X,
-  Grid3x3
+  Grid3x3,
+  Cloud
 } from 'lucide-react'
 import type { Group, InstanceMeta } from '@shared/types'
 import { useApp } from '../store'
@@ -249,6 +250,7 @@ export default function Sidebar(): ReactElement {
             <Grid3x3 size={14} /> Matrix
           </button>
         </div>
+        <PanelNavButton />
       </div>
 
       {/* Tree */}
@@ -325,6 +327,25 @@ export default function Sidebar(): ReactElement {
         <VersionBadge />
       </div>
     </aside>
+  )
+}
+
+/** Nav entry for the remote panel (Pterodactyl) view. */
+function PanelNavButton(): ReactElement {
+  const panelView = useApp((s) => s.panelView)
+  const showPanel = useApp((s) => s.showPanel)
+  return (
+    <button
+      onClick={showPanel}
+      title="Control your servers on a Pterodactyl panel"
+      className={`flex w-full items-center gap-2 rounded-brand border px-3 py-1.5 text-xs transition ${
+        panelView
+          ? 'border-accent/50 bg-accent/15 text-accent'
+          : 'border-border text-fg-muted hover:bg-surface-2 hover:text-fg'
+      }`}
+    >
+      <Cloud size={14} /> Birdflop Panel
+    </button>
   )
 }
 

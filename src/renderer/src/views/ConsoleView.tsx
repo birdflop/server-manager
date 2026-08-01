@@ -13,7 +13,7 @@ const SEARCH_DECORATIONS = {
   activeMatchColorOverviewRuler: '#54daf4'
 }
 
-const TERM_THEMES = {
+export const TERM_THEMES = {
   dark: {
     background: '#0d1322',
     foreground: '#d6e1ff',

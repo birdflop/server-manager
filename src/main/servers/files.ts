@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process'
 import { join, resolve, relative, isAbsolute, sep } from 'node:path'
 import { readFileSync, writeFileSync, readdirSync, statSync, mkdirSync, existsSync } from 'node:fs'
-import type { DetectedEditor, FileEntry, FileReadResult } from '@shared/types'
+import type { DeepFileListing, DetectedEditor, FileEntry, FileReadResult } from '@shared/types'
 import { instanceDir } from '../store/instances'
 
 /** Files larger than this are not opened in the built-in editor (they're config files). */
@@ -52,6 +52,69 @@ export function listFiles(root: string, id: string, relPath: string): FileEntry[
     if (a.isDir !== b.isDir) return a.isDir ? -1 : 1
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
   })
+}
+
+/** Cap on entries returned by listFilesDeep — keeps the IPC payload sane on pathological folders. */
+const MAX_DEEP_ENTRIES = 50_000
+
+/**
+ * List every file and folder inside an instance in one pass, for the file-tree viewer.
+ * Symlinks are reported but never followed, so a link pointing back up can't loop the walk.
+ */
+export function listFilesDeep(root: string, id: string): DeepFileListing {
+  const base = instanceDir(root, id)
+  const entries: FileEntry[] = []
+  let truncated = false
+
+  function walk(dir: string, rel: string): void {
+    let dirents
+    try {
+      dirents = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return // unreadable directory — skip its contents
+    }
+    for (const ent of dirents) {
+      if (entries.length >= MAX_DEEP_ENTRIES) {
+        truncated = true
+        return
+      }
+      const abs = join(dir, ent.name)
+      const relPath = rel ? `${rel}/${ent.name}` : ent.name
+      if (ent.isSymbolicLink()) {
+        try {
+          const st = statSync(abs) // report what the link points at, but don't recurse
+          entries.push({
+            name: ent.name,
+            path: relPath,
+            isDir: st.isDirectory(),
+            size: st.isDirectory() ? 0 : st.size,
+            mtimeMs: st.mtimeMs
+          })
+        } catch {
+          /* broken link — skip */
+        }
+        continue
+      }
+      if (ent.isDirectory()) {
+        entries.push({ name: ent.name, path: relPath, isDir: true, size: 0, mtimeMs: 0 })
+        walk(abs, relPath)
+      } else if (ent.isFile()) {
+        let size = 0
+        let mtimeMs = 0
+        try {
+          const st = statSync(abs)
+          size = st.size
+          mtimeMs = st.mtimeMs
+        } catch {
+          continue
+        }
+        entries.push({ name: ent.name, path: relPath, isDir: false, size, mtimeMs })
+      }
+    }
+  }
+
+  walk(base, '')
+  return { entries, truncated }
 }
 
 /** Read a file for the editor, reporting binary/oversize/missing rather than throwing. */

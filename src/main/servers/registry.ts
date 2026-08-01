@@ -37,6 +37,16 @@ serverEvents.setMaxListeners(50)
 /** Servers whose crash notifications + auto-restart are suppressed (compat runs drive them). */
 const quietIds = new Set<string>()
 
+// Crash-loop guard: a broken server (bad plugin, corrupt world) would otherwise
+// restart forever. Allow a few rapid auto-restarts, then give up until the user
+// starts the server manually again.
+/** Timestamps of recent crashes per instance id. */
+const recentCrashes = new Map<string, number[]>()
+/** Auto-restarts allowed within the window before the guard trips. */
+const CRASH_LOOP_MAX_RESTARTS = 3
+/** Crashes further apart than this don't count as "in quick succession". */
+const CRASH_LOOP_WINDOW_MS = 5 * 60 * 1000
+
 /** Toggle notification/auto-restart suppression for a server under orchestrated control. */
 export function setQuiet(id: string, on: boolean): void {
   if (on) quietIds.add(id)
@@ -142,8 +152,10 @@ export function runningIds(): string[] {
   return [...running.entries()].filter(([, r]) => r.status !== 'stopped').map(([id]) => id)
 }
 
-export function start(instance: Instance, dir: string): void {
+export function start(instance: Instance, dir: string, fromAutoRestart = false): void {
   if (isRunning(instance.id)) return
+  // A deliberate start is a fresh chance — only auto-restarts accumulate strikes.
+  if (!fromAutoRestart) recentCrashes.delete(instance.id)
 
   let cmd
   try {
@@ -234,8 +246,22 @@ export function start(instance: Instance, dir: string): void {
     if (crashed && !quietIds.has(instance.id)) {
       notify(instance.name, `Server stopped unexpectedly (exit code ${code ?? 'unknown'}).`)
       if (getConfig().autoRestartOnCrash) {
-        appendOutput(instance.id, '\n\x1b[36m[auto-restarting after crash…]\x1b[0m\n')
-        setTimeout(() => start(instance, dir), 1500)
+        const now = Date.now()
+        const crashes = (recentCrashes.get(instance.id) ?? []).filter(
+          (t) => now - t < CRASH_LOOP_WINDOW_MS
+        )
+        crashes.push(now)
+        recentCrashes.set(instance.id, crashes)
+        if (crashes.length > CRASH_LOOP_MAX_RESTARTS) {
+          appendOutput(
+            instance.id,
+            `\n\x1b[33m[auto-restart paused — the server crashed ${crashes.length} times in quick succession. Start it manually to try again.]\x1b[0m\n`
+          )
+          notify(instance.name, 'Auto-restart paused after repeated crashes.')
+        } else {
+          appendOutput(instance.id, '\n\x1b[36m[auto-restarting after crash…]\x1b[0m\n')
+          setTimeout(() => start(instance, dir, true), 1500)
+        }
       }
     }
   })

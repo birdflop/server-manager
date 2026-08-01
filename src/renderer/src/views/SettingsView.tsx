@@ -13,7 +13,8 @@ import {
   ClipboardCopy,
   Hammer,
   UploadCloud,
-  FileJson
+  FileJson,
+  Terminal as TerminalIcon
 } from 'lucide-react'
 import type {
   DebugConfig,
@@ -21,12 +22,13 @@ import type {
   Instance,
   InstanceTemplate,
   JavaInstall,
+  LaunchPreview,
   ServerStatus,
   WatchAction,
   WatchConfig
 } from '@shared/types'
 import { DEFAULT_DEBUG, DEFAULT_DEVLINK, DEFAULT_WATCH } from '@shared/types'
-import { SERVER_TYPE_MAP, contentDirOf, contentKindOf } from '@shared/software'
+import { SERVER_TYPE_MAP, contentDirOf, contentKindOf, isProxy } from '@shared/software'
 import { useApp } from '../store'
 
 function ramLabel(mb: number): string {
@@ -73,6 +75,12 @@ export function SettingsView({
   const [ramMB, setRamMB] = useState(instance.ramMB)
   const [javaPath, setJavaPath] = useState(instance.javaPath)
   const [jvmArgs, setJvmArgs] = useState(instance.jvmArgs.join(' '))
+  const defaultGameArgs = isProxy(instance.serverType) ? [] : ['nogui']
+  const [launchJar, setLaunchJar] = useState(instance.launchJar ?? 'server.jar')
+  const [gameArgsStr, setGameArgsStr] = useState((instance.gameArgs ?? defaultGameArgs).join(' '))
+  const [override, setOverride] = useState(instance.launchOverride ?? '')
+  const [preview, setPreview] = useState<LaunchPreview | null>(null)
+  const [copiedCmd, setCopiedCmd] = useState(false)
   const [javas, setJavas] = useState<JavaInstall[]>([])
   const [rescanningJava, setRescanningJava] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -217,6 +225,49 @@ export function SettingsView({
     void window.api.listJava().then(setJavas)
   }, [])
 
+  // Live preview of the exact startup command, reflecting unsaved edits (debounced).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void window.api
+        .launchPreview(instance.id, {
+          ramMB,
+          javaPath,
+          jvmArgs: jvmArgs.split(/\s+/).filter(Boolean),
+          ...(instance.launchKind === 'jar' ? { launchJar: launchJar.trim() || 'server.jar' } : {}),
+          gameArgs: gameArgsStr.split(/\s+/).filter(Boolean),
+          launchOverride: override,
+          debug: buildDebug()
+        })
+        .then(setPreview)
+        .catch(() => setPreview(null))
+    }, 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    instance.id,
+    instance.launchKind,
+    ramMB,
+    javaPath,
+    jvmArgs,
+    launchJar,
+    gameArgsStr,
+    override,
+    debugEnabled,
+    debugPort,
+    debugSuspend
+  ])
+
+  /** Shell-style quoting for display only (the app spawns without a shell). */
+  const previewText = preview
+    ? [preview.command, ...preview.args].map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')
+    : ''
+
+  async function copyCommand(): Promise<void> {
+    await window.api.copyText(previewText)
+    setCopiedCmd(true)
+    setTimeout(() => setCopiedCmd(false), 1500)
+  }
+
   async function rescanJava(): Promise<void> {
     setRescanningJava(true)
     try {
@@ -234,6 +285,9 @@ export function SettingsView({
     ramMB !== instance.ramMB ||
     javaPath !== instance.javaPath ||
     jvmArgs !== instance.jvmArgs.join(' ') ||
+    (instance.launchKind === 'jar' && launchJar !== (instance.launchJar ?? 'server.jar')) ||
+    gameArgsStr !== (instance.gameArgs ?? defaultGameArgs).join(' ') ||
+    override !== (instance.launchOverride ?? '') ||
     watchDirty ||
     devDirty ||
     debugDirty
@@ -247,6 +301,9 @@ export function SettingsView({
         ramMB,
         javaPath,
         jvmArgs: jvmArgs.split(/\s+/).filter(Boolean),
+        ...(instance.launchKind === 'jar' ? { launchJar: launchJar.trim() || 'server.jar' } : {}),
+        gameArgs: gameArgsStr.split(/\s+/).filter(Boolean),
+        launchOverride: override.trim() || undefined,
         ...(watchDirty ? { watch: buildWatch() } : {}),
         ...(devDirty ? { devLink: buildDevLink() } : {}),
         ...(debugDirty ? { debug: buildDebug() } : {})
@@ -397,7 +454,82 @@ export function SettingsView({
               className="w-full rounded-md bg-input px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
             />
           </Labeled>
+
+          <div className="grid grid-cols-2 gap-4">
+            {instance.launchKind === 'jar' && (
+              <Labeled label="Launch jar">
+                <input
+                  value={launchJar}
+                  onChange={(e) => setLaunchJar(e.target.value)}
+                  placeholder="server.jar"
+                  className="w-full rounded-md bg-input px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
+                />
+              </Labeled>
+            )}
+            <Labeled label="Game arguments (after the jar)">
+              <input
+                value={gameArgsStr}
+                onChange={(e) => setGameArgsStr(e.target.value)}
+                placeholder={defaultGameArgs.join(' ') || 'none'}
+                className="w-full rounded-md bg-input px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
+              />
+            </Labeled>
+          </div>
         </div>
+      </section>
+
+      {/* Startup command */}
+      <section className="rounded-brand border border-border bg-surface p-4">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <TerminalIcon size={15} /> Startup command
+          </h2>
+          <button
+            type="button"
+            onClick={() => void copyCommand()}
+            disabled={!previewText}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+          >
+            <ClipboardCopy size={13} /> {copiedCmd ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <p className="mb-2 text-xs text-fg-muted">
+          The exact command this server launches with, including unsaved edits above.
+        </p>
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-input px-3 py-2 font-mono text-xs text-fg">
+          {previewText || '…'}
+        </pre>
+        {preview?.userJvmArgs && !preview.overridden && (
+          <div className="mt-2">
+            <div className="mb-1 text-xs text-fg-muted">
+              <code className="rounded bg-input px-1 py-0.5 font-mono">user_jvm_args.txt</code>{' '}
+              (regenerated at every start):
+            </div>
+            <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-input px-3 py-2 font-mono text-xs text-fg-muted">
+              {preview.userJvmArgs.trimEnd()}
+            </pre>
+          </div>
+        )}
+        <Labeled label="Custom startup command (advanced)">
+          <textarea
+            value={override}
+            onChange={(e) => setOverride(e.target.value)}
+            rows={2}
+            spellCheck={false}
+            placeholder='Leave empty to use the generated command, e.g. java -Xmx4G -jar server.jar nogui'
+            className="w-full resize-y rounded-md bg-input px-3 py-2 font-mono text-xs outline-none focus:ring-1 focus:ring-accent"
+          />
+        </Labeled>
+        {preview?.overridden && (
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            <span>
+              The custom command replaces everything the app would generate — memory, Java
+              selection, JVM args, and debug settings above are ignored (quote paths containing
+              spaces). Clear it to go back to the generated command.
+            </span>
+          </div>
+        )}
       </section>
 
       {/* File watcher */}

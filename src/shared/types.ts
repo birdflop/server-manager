@@ -72,6 +72,13 @@ export interface Instance {
   ramMB: number
   javaPath: string
   jvmArgs: string[]
+  /** Args after the jar (e.g. ["nogui"]). Undefined = the per-type default. */
+  gameArgs?: string[]
+  /**
+   * Full custom startup command, used verbatim instead of the generated one
+   * (quote-aware; first token is the program). Undefined/blank = generated.
+   */
+  launchOverride?: string
   eulaAccepted: boolean
   createdAt: number
   /** For proxies only: the backend servers this proxy routes to. */
@@ -254,6 +261,13 @@ export interface FileEntry {
   /** Size in bytes (0 for directories). */
   size: number
   mtimeMs: number
+}
+
+/** Recursive listing of a whole instance folder, for the file-tree viewer. */
+export interface DeepFileListing {
+  entries: FileEntry[]
+  /** True when the walk stopped early because the instance has too many files. */
+  truncated: boolean
 }
 
 /** Result of reading a file for the built-in editor. */
@@ -653,6 +667,17 @@ export interface CreateInstancePayload {
   groupId: string | null
 }
 
+/** The exact startup command a server would launch with right now. */
+export interface LaunchPreview {
+  /** Program to run (java path or the override's first token). */
+  command: string
+  args: string[]
+  /** True when a custom startup command override is in effect. */
+  overridden: boolean
+  /** Forge/NeoForge only: content of the user_jvm_args.txt regenerated at every start. */
+  userJvmArgs?: string
+}
+
 /** Progress events emitted while creating/installing a server. */
 export interface InstallProgress {
   phase: 'resolve' | 'download' | 'install' | 'configure' | 'done' | 'error'
@@ -682,12 +707,126 @@ export interface AppConfig {
   minimizeToTray: boolean
   /** ngrok auth token used by the tunnel/share feature (null = not set). */
   ngrokAuthToken: string | null
+  /** Pterodactyl/Pelican panel URL for remote server control (null = not connected). */
+  pterodactylPanelUrl: string | null
   /** Birdflop tunnel identity (one per user); null until first enrolled. */
   birdflopTunnel: BirdflopTunnelIdentity | null
   /** Reusable console command shortcuts, shown as buttons in every server's console. */
   consoleMacros: ConsoleMacro[]
   /** Saved server-creation presets offered in the create wizard. */
   templates: InstanceTemplate[]
+}
+
+// ---- Pterodactyl panel (remote servers) ----
+
+/** The panel account a client API key belongs to. */
+export interface PteroAccount {
+  username: string
+  email: string
+  admin: boolean
+}
+
+/** Connection state of the Pterodactyl panel integration. */
+export interface PteroConnection {
+  connected: boolean
+  panelUrl: string | null
+  /** Populated once the API key has been verified against the panel. */
+  account: PteroAccount | null
+}
+
+/** Power signals the panel accepts. */
+export type PteroPowerAction = 'start' | 'stop' | 'restart' | 'kill'
+
+/** Live power state Wings reports for a remote server. */
+export type PteroPowerState = 'offline' | 'starting' | 'running' | 'stopping'
+
+/** A server the API key's panel account can access. */
+export interface PteroServer {
+  /** Short identifier used in every API route (e.g. "d3aac109"). */
+  identifier: string
+  name: string
+  description: string
+  /** Node the server runs on (display only). */
+  node: string
+  /** Primary allocation players connect to ("host:port"), when one is designated. */
+  address: string | null
+  suspended: boolean
+  limits: {
+    /** MB; 0 = unlimited. */
+    memoryMB: number
+    /** MB; 0 = unlimited. */
+    diskMB: number
+    /** Percent of one core (100 = one core); 0 = unlimited. */
+    cpuPct: number
+  }
+}
+
+/** Point-in-time resource usage of a remote server. */
+export interface PteroResources {
+  state: PteroPowerState
+  cpuPct: number
+  memMB: number
+  diskMB: number
+  uptimeMs: number
+}
+
+/** A backup stored on the panel for a remote server. */
+export interface PteroBackup {
+  uuid: string
+  name: string
+  /** Archive size in bytes (0 while the backup is still running). */
+  size: number
+  successful: boolean
+  /** Locked backups can't be deleted until unlocked on the panel. */
+  locked: boolean
+  createdAt: number
+  /** Null while the backup is still being taken. */
+  completedAt: number | null
+}
+
+/** Prefill for the clone-locally dialog, guessed from the remote server. */
+export interface PteroClonePrefill {
+  name: string
+  ramMB: number
+  port: number
+  launchKind: 'jar' | 'args-file'
+  launchJar?: string
+  jvmArgs: string[]
+  /** Best-effort guesses from the startup command (undefined = couldn't tell). */
+  serverType?: ServerType
+  mcVersion?: string
+}
+
+/** Payload for cloning a remote panel server into a local instance. */
+export interface PteroClonePayload {
+  serverId: string
+  name: string
+  serverType: ServerType
+  mcVersion: string
+  launchKind: 'jar' | 'args-file'
+  launchJar?: string
+  port: number
+  ramMB: number
+  javaPath: string
+  jvmArgs: string[]
+  groupId: string | null
+}
+
+/** A chunk of console output streamed from a remote server's websocket. */
+export interface PteroOutputEvent {
+  serverId: string
+  chunk: string
+}
+
+/** A power-state transition pushed over a remote server's websocket. */
+export interface PteroStateEvent {
+  serverId: string
+  state: PteroPowerState
+}
+
+/** Live resource usage pushed over a remote server's websocket. */
+export interface PteroStatsEvent extends PteroResources {
+  serverId: string
 }
 
 /**
@@ -749,7 +888,7 @@ export interface BirdflopApi {
   getInstance(id: string): Promise<Instance | null>
   /** Read every instance's full config (for the dashboard). */
   listInstances(): Promise<Instance[]>
-  /** Apply editable settings (name, port, ram, java, jvm args). */
+  /** Apply editable settings (name, port, ram, java, jvm args, launch config). */
   updateInstance(
     id: string,
     patch: Partial<
@@ -760,6 +899,9 @@ export interface BirdflopApi {
         | 'ramMB'
         | 'javaPath'
         | 'jvmArgs'
+        | 'launchJar'
+        | 'gameArgs'
+        | 'launchOverride'
         | 'watch'
         | 'devLink'
         | 'tunnel'
@@ -768,6 +910,11 @@ export interface BirdflopApi {
       >
     >
   ): Promise<{ instance: Instance; index: ManagerIndex } | null>
+  /**
+   * The exact startup command a server would launch with. `patch` previews
+   * unsaved edits (RAM, Java, args, override) without persisting them.
+   */
+  launchPreview(id: string, patch?: Partial<Instance>): Promise<LaunchPreview>
   /** Delete a server (folder + index entry). */
   deleteInstance(id: string): Promise<ManagerIndex>
   /** Open a folder inside the server (relPath, default the root) in the OS file manager. */
@@ -856,6 +1003,8 @@ export interface BirdflopApi {
   // Files (built-in viewer/editor)
   /** List the entries of a directory within an instance (relPath "" = instance root). */
   listFiles(id: string, relPath: string): Promise<FileEntry[]>
+  /** Recursively list everything inside an instance for the file-tree viewer. */
+  listFilesDeep(id: string): Promise<DeepFileListing>
   /** Read a text file for the editor; reports binary/too-large/missing instead of throwing. */
   readFile(id: string, relPath: string): Promise<FileReadResult>
   /** Write text content to a file within an instance (creates parent dirs if needed). */
@@ -933,6 +1082,70 @@ export interface BirdflopApi {
   getCompatRun(): Promise<CompatRun | null>
   /** Subscribe to compatibility-run progress snapshots. Returns an unsubscribe fn. */
   onCompatProgress(cb: (run: CompatRun) => void): () => void
+
+  // Pterodactyl panel (remote servers)
+  /** Current panel connection state (verifies the key lazily when needed). */
+  pteroStatus(): Promise<PteroConnection>
+  /** Verify + save a panel URL and client API key. Throws with a friendly message on failure. */
+  pteroConnect(panelUrl: string, apiKey: string): Promise<PteroConnection>
+  /** Forget the saved panel URL + API key and close any open consoles. */
+  pteroDisconnect(): Promise<void>
+  /** Servers the connected account can access. */
+  pteroListServers(): Promise<PteroServer[]>
+  /** Point-in-time state + resource usage for one remote server. */
+  pteroResources(serverId: string): Promise<PteroResources>
+  /** Send a power signal (start/stop/restart/kill) to a remote server. */
+  pteroPower(serverId: string, action: PteroPowerAction): Promise<void>
+  /** Send a console command to a running remote server. */
+  pteroSendCommand(serverId: string, command: string): Promise<void>
+  /** Open (or reuse) a live console session; resolves with buffered scrollback. */
+  pteroOpenConsole(serverId: string): Promise<string>
+  /** Close a live console session. */
+  pteroCloseConsole(serverId: string): Promise<void>
+  /** Subscribe to remote console output. Returns an unsubscribe fn. */
+  onPteroOutput(cb: (e: PteroOutputEvent) => void): () => void
+  /** Subscribe to remote power-state changes. Returns an unsubscribe fn. */
+  onPteroState(cb: (e: PteroStateEvent) => void): () => void
+  /** Subscribe to remote resource-usage samples. Returns an unsubscribe fn. */
+  onPteroStats(cb: (e: PteroStatsEvent) => void): () => void
+
+  // Pterodactyl panel — remote files
+  /** List a directory on a remote server ("" = server root). Dirs first. */
+  pteroListFiles(serverId: string, dir: string): Promise<FileEntry[]>
+  /** Read a remote text file for the editor; reports binary/too-large instead of throwing. */
+  pteroReadFile(serverId: string, path: string): Promise<FileReadResult>
+  /** Write text content to a remote file. */
+  pteroWriteFile(serverId: string, path: string, content: string): Promise<void>
+  /** Rename a file/folder within a remote directory. */
+  pteroRenameFile(serverId: string, dir: string, from: string, to: string): Promise<void>
+  /** Delete files/folders within a remote directory. */
+  pteroDeleteFiles(serverId: string, dir: string, names: string[]): Promise<void>
+  /** Create a folder within a remote directory. */
+  pteroCreateFolder(serverId: string, dir: string, name: string): Promise<void>
+  /** Download a remote file via the browser (signed panel URL). */
+  pteroDownloadFile(serverId: string, path: string): Promise<void>
+  /** Pick local files and upload them to a remote directory. Null if cancelled. */
+  pteroUploadFiles(serverId: string, dir: string): Promise<FileEntry[] | null>
+
+  // Pterodactyl panel — remote backups
+  pteroListBackups(serverId: string): Promise<PteroBackup[]>
+  /** Start a backup; returns the refreshed list (the new entry may still be running). */
+  pteroCreateBackup(serverId: string): Promise<PteroBackup[]>
+  /** Restore a backup over the server's current files. */
+  pteroRestoreBackup(serverId: string, uuid: string): Promise<void>
+  pteroDeleteBackup(serverId: string, uuid: string): Promise<PteroBackup[]>
+  /** Download a backup archive via the browser (signed panel URL). */
+  pteroDownloadBackup(serverId: string, uuid: string): Promise<void>
+
+  // Pterodactyl panel — clone to local
+  /** Inspect a remote server and suggest local clone settings. */
+  pteroClonePrepare(serverId: string): Promise<PteroClonePrefill>
+  /** Copy a remote server 1:1 into a new local instance. Progress via onPteroCloneProgress. */
+  pteroCloneServer(payload: PteroClonePayload): Promise<{ instance: Instance; index: ManagerIndex }>
+  /** Abort the in-flight clone, if any (the clone call rejects with "Clone canceled"). */
+  pteroCloneCancel(): Promise<void>
+  /** Progress events for the in-flight clone. */
+  onPteroCloneProgress(cb: (p: InstallProgress) => void): () => void
 
   // App + updater
   /** The running app's version (from package.json). */

@@ -1,15 +1,16 @@
 import { BrowserWindow } from 'electron'
 import type { Instance, PerfSource, ServerPerfEvent } from '@shared/types'
 import { isProxy } from '@shared/software'
-import { rconExec } from '../util/rcon'
+import { RconClient } from '../util/rcon'
 import { parseTps, parseMspt, isUnknownCommand } from './perf-parse'
 
 /**
- * Tick-metric polling: while a server runs, poll TPS/MSPT every few seconds over the
- * app-managed local RCON connection — silently, so the visible console stays clean.
- * Paper-family servers answer the built-in `tps`/`mspt` commands; everything else is
- * asked via `spark tps` (works when the spark mod/plugin is installed). When neither
- * responds, we report source 'none' and stop polling for that run.
+ * Tick-metric polling: while a server runs, poll TPS/MSPT every few seconds over a
+ * single long-running app-managed RCON connection — silently, so the visible console
+ * stays clean (per-command connections made the server log an RCON client line every
+ * poll). Paper-family servers answer the built-in `tps`/`mspt` commands; everything
+ * else is asked via `spark tps` (works when the spark mod/plugin is installed). When
+ * neither responds, we report source 'none' and stop polling for that run.
  */
 
 const POLL_MS = 5000
@@ -20,6 +21,8 @@ const BUILTIN_TPS_TYPES = new Set(['paper', 'purpur', 'folia'])
 
 interface Poller {
   timer: ReturnType<typeof setInterval>
+  /** Persistent RCON connection, reused across polls for this run. */
+  client: RconClient
   /** Metric sources left to try, first entry is the active one. */
   modes: Exclude<PerfSource, 'none'>[]
   connFailures: number
@@ -48,9 +51,10 @@ export function startPerfPolling(instance: Instance): void {
     : ['spark']
   const poller: Poller = {
     modes,
+    client: new RconClient(rcon.port, rcon.password),
     connFailures: 0,
     busy: false,
-    timer: setInterval(() => void poll(instance, rcon), POLL_MS)
+    timer: setInterval(() => void poll(instance), POLL_MS)
   }
   pollers.set(instance.id, poller)
 }
@@ -60,6 +64,7 @@ export function stopPerfPolling(id: string): void {
   const p = pollers.get(id)
   if (!p) return
   clearInterval(p.timer)
+  p.client.close()
   pollers.delete(id)
 }
 
@@ -68,7 +73,7 @@ function giveUp(id: string): void {
   broadcast({ id, source: 'none' })
 }
 
-async function poll(instance: Instance, rcon: { port: number; password: string }): Promise<void> {
+async function poll(instance: Instance): Promise<void> {
   const poller = pollers.get(instance.id)
   if (!poller || poller.busy) return
   poller.busy = true
@@ -77,7 +82,7 @@ async function poll(instance: Instance, rcon: { port: number; password: string }
     if (!mode) return giveUp(instance.id)
 
     if (mode === 'builtin') {
-      const tpsOut = await rconExec(rcon.port, rcon.password, 'tps')
+      const tpsOut = await poller.client.exec('tps')
       if (isUnknownCommand(tpsOut)) {
         poller.modes.shift()
         return
@@ -86,7 +91,7 @@ async function poll(instance: Instance, rcon: { port: number; password: string }
       if (tps === null) return // unparseable this tick — try again next poll
       let mspt: number | undefined
       try {
-        const msptOut = await rconExec(rcon.port, rcon.password, 'mspt')
+        const msptOut = await poller.client.exec('mspt')
         mspt = parseMspt(msptOut) ?? undefined
       } catch {
         /* tps alone is still useful */
@@ -97,7 +102,7 @@ async function poll(instance: Instance, rcon: { port: number; password: string }
     }
 
     // spark mode
-    const out = await rconExec(rcon.port, rcon.password, 'spark tps')
+    const out = await poller.client.exec('spark tps')
     if (isUnknownCommand(out)) {
       poller.modes.shift()
       return
@@ -107,7 +112,8 @@ async function poll(instance: Instance, rcon: { port: number; password: string }
     poller.connFailures = 0
     broadcast({ id: instance.id, source: 'spark', tps, mspt: parseMspt(out) ?? undefined })
   } catch {
-    // Connection refused / timeout — RCON not up yet, or disabled in this server's config.
+    // Connection refused / timeout — RCON not up yet, or disabled in this server's
+    // config. The client re-dials on the next poll.
     if (++poller.connFailures >= MAX_CONN_FAILURES) giveUp(instance.id)
   } finally {
     const p = pollers.get(instance.id)

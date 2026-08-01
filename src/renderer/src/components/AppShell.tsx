@@ -3,6 +3,7 @@ import { useApp } from '../store'
 import Sidebar from './Sidebar'
 import TabBar from './TabBar'
 import Dashboard from '../views/Dashboard'
+import PanelView from '../views/PanelView'
 import ServerView from '../views/ServerView'
 import CreateInstanceWizard from '../modals/CreateInstanceWizard'
 import UpdateModal from '../modals/UpdateModal'
@@ -12,6 +13,7 @@ import TestMatrixModal from '../modals/TestMatrixModal'
 
 export default function AppShell(): ReactElement {
   const activeTabId = useApp((s) => s.activeTabId)
+  const panelView = useApp((s) => s.panelView)
   const exists = useApp((s) => s.index.instances.some((i) => i.id === activeTabId))
   const wizardOpen = useApp((s) => s.wizardOpen)
   const updateModalOpen = useApp((s) => s.updateModalOpen)
@@ -25,7 +27,13 @@ export default function AppShell(): ReactElement {
       <main className="flex min-w-0 flex-1 flex-col">
         <TabBar />
         <div className="min-h-0 flex-1">
-          {activeTabId && exists ? <ServerView instanceId={activeTabId} /> : <Dashboard />}
+          {panelView ? (
+            <PanelView />
+          ) : activeTabId && exists ? (
+            <ServerView instanceId={activeTabId} />
+          ) : (
+            <Dashboard />
+          )}
         </div>
       </main>
       {wizardOpen && <CreateInstanceWizard />}

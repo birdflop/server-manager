@@ -1,26 +1,26 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react'
 import {
-  Folder,
   FileText,
   Save,
   RotateCw,
   RefreshCw,
-  ChevronRight,
-  CornerLeftUp,
   FolderOpen,
   ExternalLink,
   ChevronDown,
   Loader2,
   AlertTriangle
 } from 'lucide-react'
-import type { DetectedEditor, FileEntry, FileReadResult } from '@shared/types'
+import { FileTree, useFileTree } from '@pierre/trees/react'
+import type { DetectedEditor, FileReadResult } from '@shared/types'
 import { CodeEditor } from '../components/CodeEditor'
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
+import {
+  TREE_HOST_STYLE,
+  entryPath,
+  formatSize,
+  parentTreePath,
+  treePath,
+  useTreeWidth
+} from '../components/serverFileTree'
 
 type ReadReason = Exclude<FileReadResult, { ok: true }>['reason']
 
@@ -32,9 +32,8 @@ const READ_MESSAGES: Record<ReadReason, string> = {
 }
 
 export function FilesView({ instanceId }: { instanceId: string }): ReactElement {
-  const [cwd, setCwd] = useState('')
-  const [entries, setEntries] = useState<FileEntry[]>([])
-  const [listing, setListing] = useState(true)
+  const [loading, setLoading] = useState(true)
+  const [truncated, setTruncated] = useState(false)
 
   const [openPath, setOpenPath] = useState<string | null>(null)
   const [content, setContent] = useState('')
@@ -48,19 +47,55 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
 
   const dirty = readState === null && openPath !== null && content !== original
 
-  const loadList = useCallback(
-    async (path: string) => {
-      setListing(true)
-      try {
-        setEntries(await window.api.listFiles(instanceId, path))
-        setCwd(path)
-      } catch {
-        setEntries([])
-      } finally {
-        setListing(false)
+  // Per-path metadata backing the row decorations; refs so the tree's
+  // construction-time callbacks always see current data.
+  const sizesRef = useRef(new Map<string, number>())
+  const dirPathsRef = useRef<string[]>([])
+  // Directory the user last touched — used by "Open folder".
+  const [activeDir, setActiveDir] = useState('')
+
+  const onSelectRef = useRef<(paths: readonly string[]) => void>(() => {})
+
+  const { width: treeWidth, onPointerDown: onResizeStart } = useTreeWidth()
+
+  const { model } = useFileTree({
+    paths: [],
+    search: true,
+    icons: { set: 'complete', colored: true },
+    density: 'compact',
+    onSelectionChange: (paths) => onSelectRef.current(paths),
+    renderRowDecoration: ({ row }) => {
+      if (row.kind !== 'file') return null
+      const size = sizesRef.current.get(row.path)
+      return size === undefined ? null : { text: formatSize(size) }
+    }
+  })
+
+  const loadTree = useCallback(
+    async (preserveExpansion: boolean) => {
+      const listing = await window.api.listFilesDeep(instanceId)
+      const paths: string[] = []
+      const sizes = new Map<string, number>()
+      const dirPaths: string[] = []
+      for (const entry of listing.entries) {
+        const p = treePath(entry)
+        paths.push(p)
+        if (entry.isDir) dirPaths.push(p)
+        else sizes.set(p, entry.size)
       }
+      // Keep folders the user already opened expanded across a refresh.
+      const expanded = preserveExpansion
+        ? dirPaths.filter((p) => {
+            const item = model.getItem(p)
+            return item !== null && 'isExpanded' in item && item.isExpanded()
+          })
+        : undefined
+      sizesRef.current = sizes
+      dirPathsRef.current = dirPaths
+      setTruncated(listing.truncated)
+      model.resetPaths(paths, expanded ? { initialExpandedPaths: expanded } : undefined)
     },
-    [instanceId]
+    [instanceId, model]
   )
 
   // Reset when switching servers.
@@ -69,17 +104,18 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
     setContent('')
     setOriginal('')
     setReadState(null)
-    void loadList('')
+    setActiveDir('')
+    setLoading(true)
+    void loadTree(false).finally(() => setLoading(false))
     void window.api.detectEditors().then(setEditors)
-  }, [instanceId, loadList])
+  }, [instanceId, loadTree])
 
   const openFile = useCallback(
-    async (entry: FileEntry) => {
-      if (dirty && !confirm('Discard unsaved changes?')) return
+    async (path: string) => {
       setOpening(true)
-      setOpenPath(entry.path)
+      setOpenPath(path)
       try {
-        const res = await window.api.readFile(instanceId, entry.path)
+        const res = await window.api.readFile(instanceId, path)
         if (res.ok) {
           setContent(res.content)
           setOriginal(res.content)
@@ -91,8 +127,27 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
         setOpening(false)
       }
     },
-    [instanceId, dirty]
+    [instanceId]
   )
+
+  // Tree selection → open files (directories only steer "Open folder").
+  onSelectRef.current = (paths) => {
+    const selected = paths[0]
+    if (!selected) return
+    if (selected.endsWith('/')) {
+      setActiveDir(entryPath(selected))
+      return
+    }
+    setActiveDir(entryPath(parentTreePath(selected)))
+    if (selected === openPath) return
+    if (dirty && !confirm('Discard unsaved changes?')) {
+      // Put the selection back on the file that's open in the editor.
+      model.getItem(selected)?.deselect()
+      if (openPath) model.getItem(openPath)?.select()
+      return
+    }
+    void openFile(selected)
+  }
 
   const save = useCallback(async () => {
     if (!openPath) return
@@ -100,11 +155,11 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
     try {
       await window.api.writeFile(instanceId, openPath, content)
       setOriginal(content)
-      void loadList(cwd) // refresh sizes
+      sizesRef.current.set(openPath, new TextEncoder().encode(content).length)
     } finally {
       setSaving(false)
     }
-  }, [instanceId, openPath, content, cwd, loadList])
+  }, [instanceId, openPath, content])
 
   const reload = useCallback(async () => {
     if (!openPath) return
@@ -131,8 +186,6 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
     return () => window.removeEventListener('keydown', onKey)
   }, [dirty, save])
 
-  const segments = cwd ? cwd.split('/') : []
-
   function launchEditor(editorId: string): void {
     setMenuOpen(false)
     void window.api.openInEditor(instanceId, editorId)
@@ -140,34 +193,20 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
 
   return (
     <div className="flex h-full flex-col">
-      {/* Top toolbar: breadcrumb + external-editor actions */}
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2">
-        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto text-xs text-fg-muted">
-          <button
-            onClick={() => void loadList('')}
-            className="shrink-0 rounded px-1.5 py-0.5 transition hover:bg-surface-2 hover:text-fg"
-          >
-            Server root
-          </button>
-          {segments.map((seg, i) => {
-            const path = segments.slice(0, i + 1).join('/')
-            return (
-              <span key={path} className="flex shrink-0 items-center gap-1">
-                <ChevronRight size={12} />
-                <button
-                  onClick={() => void loadList(path)}
-                  className="rounded px-1.5 py-0.5 transition hover:bg-surface-2 hover:text-fg"
-                >
-                  {seg}
-                </button>
-              </span>
-            )
-          })}
-        </nav>
-
+      {/* Top toolbar: external-editor actions */}
+      <div className="flex items-center justify-end gap-2 border-b border-border px-4 py-2">
+        {truncated && (
+          <span className="mr-auto text-xs text-amber-400">
+            This server has too many files to show them all — the tree is truncated.
+          </span>
+        )}
         <button
-          onClick={() => void window.api.openInstanceFolder(instanceId, cwd)}
-          title={cwd ? `Open ${cwd} in your file manager` : 'Open the server folder in your file manager'}
+          onClick={() => void window.api.openInstanceFolder(instanceId, activeDir)}
+          title={
+            activeDir
+              ? `Open ${activeDir} in your file manager`
+              : 'Open the server folder in your file manager'
+          }
           className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
         >
           <FolderOpen size={13} /> Open folder
@@ -207,60 +246,38 @@ export function FilesView({ instanceId }: { instanceId: string }): ReactElement 
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* File browser */}
-        <aside className="flex w-72 shrink-0 flex-col border-r border-border">
-          <div className="flex items-center justify-between px-3 py-2 text-xs font-semibold uppercase tracking-wide text-fg-muted">
-            <span>Files</span>
-            <button
-              onClick={() => void loadList(cwd)}
-              title="Refresh"
-              className="rounded p-1 transition hover:bg-surface-2 hover:text-fg"
-            >
-              <RefreshCw size={13} />
-            </button>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-            {cwd && (
-              <button
-                onClick={() => void loadList(segments.slice(0, -1).join('/'))}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-fg-muted transition hover:bg-surface-2"
-              >
-                <CornerLeftUp size={15} /> ..
-              </button>
-            )}
-            {listing ? (
-              <div className="grid place-items-center py-6 text-fg-muted">
-                <Loader2 className="animate-spin" size={16} />
-              </div>
-            ) : entries.length === 0 ? (
-              <p className="px-2 py-4 text-xs text-fg-muted">This folder is empty.</p>
-            ) : (
-              entries.map((entry) =>
-                entry.isDir ? (
+        {/* File tree */}
+        <aside
+          style={{ width: treeWidth }}
+          className="relative flex shrink-0 flex-col border-r border-border"
+        >
+          <div
+            onPointerDown={onResizeStart}
+            title="Drag to resize"
+            className="absolute inset-y-0 -right-[3px] z-10 w-1.5 cursor-col-resize transition hover:bg-accent/40 active:bg-accent/60"
+          />
+          {loading ? (
+            <div className="grid flex-1 place-items-center text-fg-muted">
+              <Loader2 className="animate-spin" size={16} />
+            </div>
+          ) : (
+            <FileTree
+              model={model}
+              style={TREE_HOST_STYLE}
+              header={
+                <div className="flex w-full items-center justify-between px-2.5 pb-1 pt-2.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+                  <span>Files</span>
                   <button
-                    key={entry.path}
-                    onClick={() => void loadList(entry.path)}
-                    className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition hover:bg-surface-2"
+                    onClick={() => void loadTree(true)}
+                    title="Refresh"
+                    className="rounded p-1 transition hover:bg-surface-2 hover:text-fg"
                   >
-                    <Folder size={15} className="shrink-0 text-accent-2" />
-                    <span className="truncate">{entry.name}</span>
+                    <RefreshCw size={13} />
                   </button>
-                ) : (
-                  <button
-                    key={entry.path}
-                    onClick={() => void openFile(entry)}
-                    className={`flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition hover:bg-surface-2 ${
-                      openPath === entry.path ? 'bg-surface-2 text-fg' : 'text-fg-muted'
-                    }`}
-                  >
-                    <FileText size={15} className="shrink-0 text-fg-muted" />
-                    <span className="flex-1 truncate">{entry.name}</span>
-                    <span className="shrink-0 text-[10px] text-fg-muted">{formatSize(entry.size)}</span>
-                  </button>
-                )
-              )
-            )}
-          </div>
+                </div>
+              }
+            />
+          )}
         </aside>
 
         {/* Editor */}

@@ -51,6 +51,10 @@ interface AppState {
   closeTab: (id: string) => void
   setActiveTab: (id: string | null) => void
 
+  /** Show the remote panel (Pterodactyl) view instead of the dashboard. */
+  panelView: boolean
+  showPanel: () => void
+
   // create-instance wizard
   wizardOpen: boolean
   openWizard: () => void
@@ -193,7 +197,8 @@ export const useApp = create<AppState>((set, get) => ({
   openTab: (id) =>
     set((s) => ({
       openTabs: s.openTabs.includes(id) ? s.openTabs : [...s.openTabs, id],
-      activeTabId: id
+      activeTabId: id,
+      panelView: false
     })),
 
   closeTab: (id) =>
@@ -207,7 +212,10 @@ export const useApp = create<AppState>((set, get) => ({
       return { openTabs, activeTabId }
     }),
 
-  setActiveTab: (id) => set({ activeTabId: id }),
+  setActiveTab: (id) => set({ activeTabId: id, panelView: false }),
+
+  panelView: false,
+  showPanel: () => set({ activeTabId: null, panelView: true }),
 
   wizardOpen: false,
   openWizard: () => set({ wizardOpen: true }),

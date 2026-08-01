@@ -5,6 +5,9 @@ import type {
   CompatRun,
   InstallProgress,
   JavaProgress,
+  PteroOutputEvent,
+  PteroStateEvent,
+  PteroStatsEvent,
   ServerDiagnosisEvent,
   ServerOutputEvent,
   ServerPerfEvent,
@@ -62,6 +65,7 @@ const api: BirdflopApi = {
   setProxyBackends: (id, backends) => ipcRenderer.invoke('proxy:setBackends', id, backends),
   importInstance: (payload) => ipcRenderer.invoke('instances:import', payload),
   listFolderJars: (path) => ipcRenderer.invoke('instances:listFolderJars', path),
+  launchPreview: (id, patch) => ipcRenderer.invoke('instances:launchPreview', id, patch),
   pickModpack: () => ipcRenderer.invoke('dialog:pickModpack'),
   importModpack: (payload) => ipcRenderer.invoke('instances:importModpack', payload),
   setupVelocityForwarding: (id) => ipcRenderer.invoke('proxy:setupForwarding', id),
@@ -121,6 +125,7 @@ const api: BirdflopApi = {
   pickFiles: () => ipcRenderer.invoke('dialog:pickFiles'),
   pathForFile: (file) => webUtils.getPathForFile(file),
   listFiles: (id, relPath) => ipcRenderer.invoke('files:list', id, relPath),
+  listFilesDeep: (id) => ipcRenderer.invoke('files:listDeep', id),
   readFile: (id, relPath) => ipcRenderer.invoke('files:read', id, relPath),
   writeFile: (id, relPath, content) => ipcRenderer.invoke('files:write', id, relPath, content),
   detectEditors: () => ipcRenderer.invoke('files:detectEditors'),
@@ -171,6 +176,57 @@ const api: BirdflopApi = {
     const listener = (_e: unknown, run: CompatRun): void => cb(run)
     ipcRenderer.on('compat:progress', listener)
     return () => ipcRenderer.removeListener('compat:progress', listener)
+  },
+
+  pteroStatus: () => ipcRenderer.invoke('ptero:status'),
+  pteroConnect: (panelUrl, apiKey) => ipcRenderer.invoke('ptero:connect', panelUrl, apiKey),
+  pteroDisconnect: () => ipcRenderer.invoke('ptero:disconnect'),
+  pteroListServers: () => ipcRenderer.invoke('ptero:listServers'),
+  pteroResources: (serverId) => ipcRenderer.invoke('ptero:resources', serverId),
+  pteroPower: (serverId, action) => ipcRenderer.invoke('ptero:power', serverId, action),
+  pteroSendCommand: (serverId, command) => ipcRenderer.invoke('ptero:command', serverId, command),
+  pteroOpenConsole: (serverId) => ipcRenderer.invoke('ptero:openConsole', serverId),
+  pteroCloseConsole: (serverId) => ipcRenderer.invoke('ptero:closeConsole', serverId),
+  onPteroOutput: (cb) => {
+    const listener = (_e: unknown, ev: PteroOutputEvent): void => cb(ev)
+    ipcRenderer.on('ptero:output', listener)
+    return () => ipcRenderer.removeListener('ptero:output', listener)
+  },
+  onPteroState: (cb) => {
+    const listener = (_e: unknown, ev: PteroStateEvent): void => cb(ev)
+    ipcRenderer.on('ptero:state', listener)
+    return () => ipcRenderer.removeListener('ptero:state', listener)
+  },
+  onPteroStats: (cb) => {
+    const listener = (_e: unknown, ev: PteroStatsEvent): void => cb(ev)
+    ipcRenderer.on('ptero:stats', listener)
+    return () => ipcRenderer.removeListener('ptero:stats', listener)
+  },
+  pteroListFiles: (serverId, dir) => ipcRenderer.invoke('ptero:listFiles', serverId, dir),
+  pteroReadFile: (serverId, path) => ipcRenderer.invoke('ptero:readFile', serverId, path),
+  pteroWriteFile: (serverId, path, content) =>
+    ipcRenderer.invoke('ptero:writeFile', serverId, path, content),
+  pteroRenameFile: (serverId, dir, from, to) =>
+    ipcRenderer.invoke('ptero:renameFile', serverId, dir, from, to),
+  pteroDeleteFiles: (serverId, dir, names) =>
+    ipcRenderer.invoke('ptero:deleteFiles', serverId, dir, names),
+  pteroCreateFolder: (serverId, dir, name) =>
+    ipcRenderer.invoke('ptero:createFolder', serverId, dir, name),
+  pteroDownloadFile: (serverId, path) => ipcRenderer.invoke('ptero:downloadFile', serverId, path),
+  pteroUploadFiles: (serverId, dir) => ipcRenderer.invoke('ptero:uploadFiles', serverId, dir),
+  pteroListBackups: (serverId) => ipcRenderer.invoke('ptero:listBackups', serverId),
+  pteroCreateBackup: (serverId) => ipcRenderer.invoke('ptero:createBackup', serverId),
+  pteroRestoreBackup: (serverId, uuid) => ipcRenderer.invoke('ptero:restoreBackup', serverId, uuid),
+  pteroDeleteBackup: (serverId, uuid) => ipcRenderer.invoke('ptero:deleteBackup', serverId, uuid),
+  pteroDownloadBackup: (serverId, uuid) =>
+    ipcRenderer.invoke('ptero:downloadBackup', serverId, uuid),
+  pteroClonePrepare: (serverId) => ipcRenderer.invoke('ptero:clonePrepare', serverId),
+  pteroCloneServer: (payload) => ipcRenderer.invoke('ptero:clone', payload),
+  pteroCloneCancel: () => ipcRenderer.invoke('ptero:cloneCancel'),
+  onPteroCloneProgress: (cb) => {
+    const listener = (_e: unknown, p: InstallProgress): void => cb(p)
+    ipcRenderer.on('ptero:cloneProgress', listener)
+    return () => ipcRenderer.removeListener('ptero:cloneProgress', listener)
   },
 
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
