@@ -18,8 +18,8 @@ import {
   Bug,
   Globe
 } from 'lucide-react'
-import type { ContentUpdate, Instance, ServerStatus } from '@shared/types'
-import { SERVER_TYPE_MAP, contentKindOf, contentSourcesOf, isProxy } from '@shared/software'
+import type { ContentSourceInfo, ContentUpdate, Instance, ServerStatus } from '@shared/types'
+import { SERVER_TYPE_MAP, contentKindOf, isProxy } from '@shared/software'
 import { useApp } from '../store'
 import { StatusDot } from '../components/StatusDot'
 import { CopyAddress } from '../components/CopyAddress'
@@ -61,15 +61,22 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
   const [instance, setInstance] = useState<Instance | null>(null)
   const [sub, setSub] = useState<SubId>('console')
   const [contentUpdates, setContentUpdates] = useState<ContentUpdate[] | null>(null)
+  const [contentSources, setContentSources] = useState<ContentSourceInfo[]>([])
 
   useEffect(() => {
     setInstance(null)
     setSub('console')
     setContentUpdates(null)
+    setContentSources([])
     void window.api.getInstance(instanceId).then((inst) => {
       setInstance(inst)
-      // Surface available plugin/mod updates as a tab badge without the user clicking "Check updates".
       if (inst && contentKindOf(inst.serverType) !== 'none') {
+        // Sources can include plugin-registered ones, so they come from the main process.
+        window.api
+          .listContentSources(instanceId)
+          .then(setContentSources)
+          .catch(() => setContentSources([]))
+        // Surface available plugin/mod updates as a tab badge without the user clicking "Check updates".
         window.api
           .checkContentUpdates(instanceId)
           .then(setContentUpdates)
@@ -206,7 +213,7 @@ export default function ServerView({ instanceId }: { instanceId: string }): Reac
           <ContentView
             instanceId={instanceId}
             label={contentLabel}
-            sources={contentSourcesOf(instance.serverType)}
+            sources={contentSources}
             updates={contentUpdates}
             setUpdates={setContentUpdates}
           />

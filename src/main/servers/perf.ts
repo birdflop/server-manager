@@ -32,7 +32,16 @@ interface Poller {
 
 const pollers = new Map<string, Poller>()
 
+/** Latest sample per running server, for pull-style consumers (plugins). */
+const lastPerf = new Map<string, ServerPerfEvent>()
+
+/** Latest tick metrics for a server, or null when none this run. */
+export function perfOf(id: string): ServerPerfEvent | null {
+  return lastPerf.get(id) ?? null
+}
+
 function broadcast(e: ServerPerfEvent): void {
+  lastPerf.set(e.id, e)
   for (const w of BrowserWindow.getAllWindows()) w.webContents.send('server:perf', e)
 }
 
@@ -61,6 +70,7 @@ export function startPerfPolling(instance: Instance): void {
 
 /** Stop polling for a server (process exited or app is shutting down). */
 export function stopPerfPolling(id: string): void {
+  lastPerf.delete(id)
   const p = pollers.get(id)
   if (!p) return
   clearInterval(p.timer)

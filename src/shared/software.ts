@@ -1,4 +1,4 @@
-import type { ContentKind, ContentSource, ServerCategory, ServerType } from './types'
+import type { ContentKind, ServerCategory, ServerType } from './types'
 
 export interface ServerTypeInfo {
   id: ServerType
@@ -137,15 +137,6 @@ export function contentKindOf(type: ServerType): ContentKind {
 /** The folder name where this server type stores its content. */
 export function contentDirOf(type: ServerType): string {
   return contentKindOf(type) === 'plugins' ? 'plugins' : 'mods'
-}
-
-/** Which content sources are available for a server type. */
-export function contentSourcesOf(type: ServerType): ContentSource[] {
-  const kind = contentKindOf(type)
-  // Hangar and SpigotMC are plugin-only; mods come from Modrinth.
-  if (kind === 'plugins') return ['modrinth', 'hangar', 'spigot']
-  if (kind === 'mods') return ['modrinth']
-  return []
 }
 
 /** Modrinth loader facets compatible with each server type (for search + install). */

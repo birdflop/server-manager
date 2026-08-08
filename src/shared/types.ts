@@ -232,8 +232,18 @@ export interface ContentUpdate {
   latestVersion?: string
 }
 
-/** Where plugins/mods can be searched + installed from. */
-export type ContentSource = 'modrinth' | 'hangar' | 'spigot'
+/**
+ * Where plugins/mods can be searched + installed from. Open-ended: the built-in
+ * sources are listed for autocomplete, but app plugins can register additional
+ * sources under their own ids.
+ */
+export type ContentSource = 'modrinth' | 'hangar' | 'spigot' | (string & {})
+
+/** A content source available for a given server, for the source picker. */
+export interface ContentSourceInfo {
+  id: ContentSource
+  label: string
+}
 
 /** A unified search result across content sources (Modrinth, Hangar, SpigotMC). */
 export interface ContentSearchHit {
@@ -364,8 +374,11 @@ export interface ServerDiagnosisEvent {
   hint: string
 }
 
-/** Services that can expose a local server to the public internet. */
-export type TunnelProviderId = 'birdflop' | 'bore' | 'ngrok'
+/**
+ * Services that can expose a local server to the public internet. Open-ended:
+ * built-ins are listed for autocomplete; app plugins can register more.
+ */
+export type TunnelProviderId = 'birdflop' | 'bore' | 'ngrok' | (string & {})
 
 /** A persistent Birdflop tunnel identity (one per user, owns a subdomain). */
 export interface BirdflopTunnelIdentity {
@@ -715,6 +728,42 @@ export interface AppConfig {
   consoleMacros: ConsoleMacro[]
   /** Saved server-creation presets offered in the create wizard. */
   templates: InstanceTemplate[]
+  /** Ids of installed app plugins the user has switched off. */
+  disabledPlugins: string[]
+}
+
+// ---- App plugins ----
+
+/** Lifecycle state of an installed app plugin. */
+export type PluginState = 'active' | 'disabled' | 'error'
+
+/** How a plugin's code runs: in the main process, or in an isolated utility process. */
+export type PluginIsolation = 'inline' | 'process'
+
+/** Declarative UI contributions a plugin can make via its manifest. */
+export interface PluginContributions {
+  /** Extra console command buttons, shown alongside the user's own macros. */
+  consoleMacros?: ConsoleMacro[]
+}
+
+/** An installed app plugin, as shown in settings. */
+export interface PluginInfo {
+  id: string
+  name: string
+  version: string
+  description?: string
+  author?: string
+  /** Permission ids the plugin declared in its manifest. */
+  permissions: string[]
+  isolation: PluginIsolation
+  state: PluginState
+  /** Why the plugin failed to load or activate, when state = 'error'. */
+  error?: string
+  /** Absolute path to the plugin's folder. */
+  dir: string
+  /** Absolute path to the plugin's log file. */
+  logPath: string
+  contributes?: PluginContributions
 }
 
 // ---- Pterodactyl panel (remote servers) ----
@@ -982,6 +1031,8 @@ export interface BirdflopApi {
   onBotsStatus(cb: (e: BotsStatusEvent) => void): () => void
 
   // Content (plugins / mods)
+  /** Sources available for this server (built-ins + plugin-registered). */
+  listContentSources(id: string): Promise<ContentSourceInfo[]>
   listContent(id: string): Promise<ContentFile[]>
   addContentFiles(id: string, paths: string[]): Promise<ContentFile[]>
   deleteContentFile(id: string, name: string): Promise<ContentFile[]>
@@ -1146,6 +1197,24 @@ export interface BirdflopApi {
   pteroCloneCancel(): Promise<void>
   /** Progress events for the in-flight clone. */
   onPteroCloneProgress(cb: (p: InstallProgress) => void): () => void
+
+  // App plugins
+  /** Installed plugins and their states. */
+  listPlugins(): Promise<PluginInfo[]>
+  /** Enable/disable a plugin (takes effect immediately). Returns the refreshed list. */
+  setPluginEnabled(id: string, enabled: boolean): Promise<PluginInfo[]>
+  /** Rescan the plugins folder and reload everything. Returns the refreshed list. */
+  reloadPlugins(): Promise<PluginInfo[]>
+  /** Open the plugins folder in the OS file manager (created if missing). */
+  openPluginsFolder(): Promise<void>
+  /** Open a plugin's log file in the OS default editor. */
+  openPluginLog(id: string): Promise<void>
+  /** Subscribe to plugin list changes (load/enable/disable/reload). Returns an unsubscribe fn. */
+  onPluginsChanged(cb: (plugins: PluginInfo[]) => void): () => void
+  /** Invoke a handler a plugin registered via ctx.ipc.handle (channel plugin:<id>:<verb>). */
+  invokePlugin(id: string, verb: string, ...args: unknown[]): Promise<unknown>
+  /** Subscribe to a plugin's broadcasts (channel plugin:<id>:<event>). Returns an unsubscribe fn. */
+  onPluginEvent(id: string, event: string, cb: (payload: unknown) => void): () => void
 
   // App + updater
   /** The running app's version (from package.json). */

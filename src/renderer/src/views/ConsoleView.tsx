@@ -37,7 +37,13 @@ export function ConsoleView({ instanceId }: { instanceId: string }): ReactElemen
   const searchInputRef = useRef<HTMLInputElement>(null)
   const status = useApp((s) => s.status[instanceId] ?? 'stopped')
   const theme = useApp((s) => s.config?.theme ?? 'dark')
-  const macros = useApp((s) => s.config?.consoleMacros ?? [])
+  const userMacros = useApp((s) => s.config?.consoleMacros ?? [])
+  const plugins = useApp((s) => s.plugins)
+  // User macros first, then macros contributed by active plugins.
+  const macros = [
+    ...userMacros,
+    ...plugins.filter((p) => p.state === 'active').flatMap((p) => p.contributes?.consoleMacros ?? [])
+  ]
   const [cmd, setCmd] = useState('')
   const [history, setHistory] = useState<string[]>([])
   const [histIdx, setHistIdx] = useState(-1)

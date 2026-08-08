@@ -19,13 +19,13 @@ import {
   ArrowUpCircle,
   Check
 } from 'lucide-react'
-import type { ContentFile, ContentSearchHit, ContentSource, ContentUpdate } from '@shared/types'
-
-const SOURCE_LABEL: Record<ContentSource, string> = {
-  modrinth: 'Modrinth',
-  hangar: 'Hangar',
-  spigot: 'SpigotMC'
-}
+import type {
+  ContentFile,
+  ContentSearchHit,
+  ContentSource,
+  ContentSourceInfo,
+  ContentUpdate
+} from '@shared/types'
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -42,7 +42,8 @@ export function ContentView({
 }: {
   instanceId: string
   label: string
-  sources: ContentSource[]
+  /** Sources available for this server (built-ins + plugin-registered), with labels. */
+  sources: ContentSourceInfo[]
   /** Pending updates, owned by ServerView so the tab can show a badge. */
   updates: ContentUpdate[] | null
   setUpdates: Dispatch<SetStateAction<ContentUpdate[] | null>>
@@ -53,7 +54,8 @@ export function ContentView({
   const [checking, setChecking] = useState(false)
   const [updatingName, setUpdatingName] = useState<string | null>(null)
 
-  const [source, setSource] = useState<ContentSource>(sources[0] ?? 'modrinth')
+  const [source, setSource] = useState<ContentSource>(sources[0]?.id ?? 'modrinth')
+  const sourceLabel = (id: ContentSource): string => sources.find((s) => s.id === id)?.label ?? id
   const [query, setQuery] = useState('')
   const [hits, setHits] = useState<ContentSearchHit[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -70,7 +72,7 @@ export function ContentView({
     setTab('installed')
     setHits(null)
     setQuery('')
-    setSource(sources[0] ?? 'modrinth')
+    setSource(sources[0]?.id ?? 'modrinth')
     setError(null)
     setNote(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -280,15 +282,15 @@ export function ContentView({
             <div className="mb-2 flex gap-1">
               {sources.map((s) => (
                 <button
-                  key={s}
-                  onClick={() => setSource(s)}
+                  key={s.id}
+                  onClick={() => setSource(s.id)}
                   className={`rounded-md px-3 py-1 text-xs transition ${
-                    source === s
+                    source === s.id
                       ? 'bg-accent/15 text-accent ring-1 ring-accent/40'
                       : 'text-fg-muted hover:bg-surface-2 hover:text-fg'
                   }`}
                 >
-                  {SOURCE_LABEL[s]}
+                  {s.label}
                 </button>
               ))}
             </div>
@@ -309,7 +311,7 @@ export function ContentView({
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder={`Search ${SOURCE_LABEL[source]} for ${label.toLowerCase()}…`}
+                placeholder={`Search ${sourceLabel(source)} for ${label.toLowerCase()}…`}
                 className="w-full rounded-brand bg-input py-2 pl-9 pr-3 text-sm outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
@@ -340,7 +342,7 @@ export function ContentView({
               </div>
             ) : hits === null ? (
               <div className="flex h-full items-center justify-center text-sm text-fg-muted">
-                Search {SOURCE_LABEL[source]} to find {label.toLowerCase()} for this server.
+                Search {sourceLabel(source)} to find {label.toLowerCase()} for this server.
               </div>
             ) : hits.length === 0 ? (
               <div className="flex h-full items-center justify-center text-sm text-fg-muted">

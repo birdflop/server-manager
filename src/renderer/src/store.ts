@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import type {
   AppConfig,
   ManagerIndex,
+  PluginInfo,
   ServerPerfEvent,
   ServerStatus,
   ThemeName,
@@ -31,6 +32,8 @@ interface AppState {
   perf: Record<string, ServerPerfEvent>
   /** Rolling TPS/MSPT samples per instance id (most recent last), for sparklines. */
   perfHistory: Record<string, { tps: number; mspt?: number }[]>
+  /** Installed app plugins (kept live via plugins:changed). */
+  plugins: PluginInfo[]
 
   // lifecycle
   init: () => Promise<void>
@@ -102,6 +105,7 @@ export const useApp = create<AppState>((set, get) => ({
   statsHistory: {},
   perf: {},
   perfHistory: {},
+  plugins: [],
 
   init: async () => {
     const config = await window.api.getConfig()
@@ -156,11 +160,14 @@ export const useApp = create<AppState>((set, get) => ({
     window.api.onUpdateStatus((u) =>
       set((s) => ({ update: u, updateModalOpen: u.state === 'downloaded' ? true : s.updateModalOpen }))
     )
-    const [appVersion, update] = await Promise.all([
+    // Keep the plugin list live (loads finish after the window appears).
+    window.api.onPluginsChanged((plugins) => set({ plugins }))
+    const [appVersion, update, plugins] = await Promise.all([
       window.api.getAppVersion(),
-      window.api.getUpdateStatus()
+      window.api.getUpdateStatus(),
+      window.api.listPlugins()
     ])
-    set({ config, index, status, appVersion, update, loading: false })
+    set({ config, index, status, appVersion, update, plugins, loading: false })
   },
 
   setTheme: async (theme) => {

@@ -5,6 +5,7 @@ import type {
   CompatRun,
   InstallProgress,
   JavaProgress,
+  PluginInfo,
   PteroOutputEvent,
   PteroStateEvent,
   PteroStatsEvent,
@@ -113,6 +114,7 @@ const api: BirdflopApi = {
     return () => ipcRenderer.removeListener('bots:status', listener)
   },
 
+  listContentSources: (id) => ipcRenderer.invoke('content:sources', id),
   listContent: (id) => ipcRenderer.invoke('content:list', id),
   addContentFiles: (id, paths) => ipcRenderer.invoke('content:add', id, paths),
   deleteContentFile: (id, name) => ipcRenderer.invoke('content:delete', id, name),
@@ -227,6 +229,24 @@ const api: BirdflopApi = {
     const listener = (_e: unknown, p: InstallProgress): void => cb(p)
     ipcRenderer.on('ptero:cloneProgress', listener)
     return () => ipcRenderer.removeListener('ptero:cloneProgress', listener)
+  },
+
+  listPlugins: () => ipcRenderer.invoke('plugins:list'),
+  setPluginEnabled: (id, enabled) => ipcRenderer.invoke('plugins:setEnabled', id, enabled),
+  reloadPlugins: () => ipcRenderer.invoke('plugins:reload'),
+  openPluginsFolder: () => ipcRenderer.invoke('plugins:openFolder'),
+  openPluginLog: (id) => ipcRenderer.invoke('plugins:openLog', id),
+  onPluginsChanged: (cb) => {
+    const listener = (_e: unknown, plugins: PluginInfo[]): void => cb(plugins)
+    ipcRenderer.on('plugins:changed', listener)
+    return () => ipcRenderer.removeListener('plugins:changed', listener)
+  },
+  invokePlugin: (id, verb, ...args) => ipcRenderer.invoke(`plugin:${id}:${verb}`, ...args),
+  onPluginEvent: (id, event, cb) => {
+    const channel = `plugin:${id}:${event}`
+    const listener = (_e: unknown, payload: unknown): void => cb(payload)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.removeListener(channel, listener)
   },
 
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),

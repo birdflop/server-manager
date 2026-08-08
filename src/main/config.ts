@@ -18,7 +18,8 @@ const DEFAULT_CONFIG: AppConfig = {
   pterodactylPanelUrl: null,
   birdflopTunnel: null,
   consoleMacros: [],
-  templates: []
+  templates: [],
+  disabledPlugins: []
 }
 
 /**

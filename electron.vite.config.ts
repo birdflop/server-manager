@@ -13,7 +13,11 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts') }
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          // Separate entry forked as a utilityProcess for process-isolated plugins.
+          'plugin-bootstrap': resolve(__dirname, 'src/main/plugins/bootstrap.ts')
+        }
       }
     }
   },

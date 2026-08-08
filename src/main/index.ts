@@ -8,6 +8,7 @@ import { syncAllDevLinks, stopAllDevLinks } from './servers/devlink'
 import { initBackupScheduler, stopAllBackupSchedules } from './servers/backup-scheduler'
 import { stopAllBots } from './servers/bots'
 import { stopAllTunnels } from './tunnels/registry'
+import { loadPlugins, deactivateAllPlugins } from './plugins/host'
 import { initUpdater, checkForUpdates } from './updater'
 import { getConfig } from './config'
 import { birdflopLogoSvg } from '@shared/logo'
@@ -197,6 +198,9 @@ app.whenReady().then(() => {
   if (rootPath) syncAllDevLinks(rootPath)
   initBackupScheduler()
 
+  // Load user-installed plugins (userData/plugins) without blocking the window.
+  void loadPlugins()
+
   // Check for updates shortly after launch (no-op in dev).
   setTimeout(() => void checkForUpdates(), 4000)
 
@@ -220,6 +224,7 @@ app.on('before-quit', (e) => {
   stopAllDevLinks()
   stopAllBackupSchedules()
   stopAllTunnels()
+  deactivateAllPlugins()
 })
 
 app.on('window-all-closed', () => {

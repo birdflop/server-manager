@@ -1,5 +1,17 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react'
-import { FolderOpen, RefreshCw, ExternalLink, Code2, Plus, Trash2, Zap, LayoutTemplate } from 'lucide-react'
+import {
+  FolderOpen,
+  RefreshCw,
+  ExternalLink,
+  Code2,
+  Plus,
+  Trash2,
+  Zap,
+  LayoutTemplate,
+  Puzzle,
+  FileText,
+  AlertCircle
+} from 'lucide-react'
 import type { ConsoleMacro, JavaInstall } from '@shared/types'
 import { SERVER_TYPE_MAP } from '@shared/software'
 import { Modal } from '../components/Modal'
@@ -195,6 +207,8 @@ export default function AppSettingsModal(): ReactElement {
 
         <TemplatesSection />
 
+        <PluginsSection />
+
         <section>
           <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-fg-muted">
             Storage
@@ -296,6 +310,99 @@ function MacrosSection(): ReactElement {
       >
         <Plus size={13} /> Add macro
       </button>
+    </section>
+  )
+}
+
+/** Installed app plugins: enable/disable, reload, open folder/logs. */
+function PluginsSection(): ReactElement {
+  // The store keeps this list live via plugins:changed broadcasts.
+  const plugins = useApp((s) => s.plugins)
+  const [reloading, setReloading] = useState(false)
+
+  async function reload(): Promise<void> {
+    setReloading(true)
+    try {
+      await window.api.reloadPlugins()
+    } finally {
+      setReloading(false)
+    }
+  }
+
+  return (
+    <section>
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-fg-muted">
+          <Puzzle size={12} /> Plugins
+        </h3>
+        <div className="flex gap-1.5">
+          <button
+            onClick={() => void window.api.openPluginsFolder()}
+            title="Open the plugins folder"
+            className="inline-flex items-center gap-1.5 rounded-brand border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+          >
+            <FolderOpen size={13} /> Folder
+          </button>
+          <button
+            onClick={() => void reload()}
+            disabled={reloading}
+            title="Rescan the plugins folder"
+            className="inline-flex items-center gap-1.5 rounded-brand border border-border px-2.5 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+          >
+            <RefreshCw size={13} className={reloading ? 'animate-spin' : ''} /> Reload
+          </button>
+        </div>
+      </div>
+      {plugins.length === 0 ? (
+        <p className="text-xs text-fg-muted">
+          No plugins installed. Drop a plugin folder (with a plugin.json) into the plugins folder
+          and hit Reload.
+        </p>
+      ) : (
+        <div className="space-y-1.5">
+          {plugins.map((p) => (
+            <div key={p.id} className="rounded-md bg-surface-2 px-3 py-2">
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="truncate font-medium">{p.name}</span>
+                    <span className="shrink-0 text-xs text-fg-muted">v{p.version}</span>
+                    {p.isolation === 'process' && (
+                      <span className="shrink-0 rounded bg-surface px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-fg-muted">
+                        isolated
+                      </span>
+                    )}
+                  </div>
+                  {p.description && (
+                    <div className="truncate text-xs text-fg-muted">{p.description}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => void window.api.openPluginLog(p.id)}
+                  title="Open plugin log"
+                  className="rounded p-1 text-fg-muted transition hover:text-fg"
+                >
+                  <FileText size={14} />
+                </button>
+                <Switch
+                  checked={p.state === 'active'}
+                  onChange={(v) => void window.api.setPluginEnabled(p.id, v)}
+                />
+              </div>
+              {p.state === 'error' && p.error && (
+                <div className="mt-1.5 flex items-start gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-xs text-amber-300">
+                  <AlertCircle size={13} className="mt-0.5 shrink-0" /> {p.error}
+                </div>
+              )}
+              {p.permissions.length > 0 && (
+                <div className="mt-1 text-[11px] text-fg-muted">
+                  Permissions: {p.permissions.join(', ')}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   )
 }

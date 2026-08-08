@@ -1,0 +1,10 @@
+{
+  "id": "mcp-bridge",
+  "name": "MCP Bridge",
+  "version": "1.0.0",
+  "description": "Exposes your servers to MCP clients (Claude Code, etc.) over local HTTP.",
+  "author": "Birdflop",
+  "main": "index.js",
+  "engines": { "bsm": ">=0.8.0" },
+  "permissions": ["servers:read", "servers:control", "network:listen"]
+}

@@ -1,4 +1,4 @@
-import type { Build, ServerType } from '@shared/types'
+import type { Build } from '@shared/types'
 
 export type { Build }
 
@@ -19,7 +19,8 @@ export interface InstallSpec {
 
 /** A source of versions, builds, and downloads for one server software. */
 export interface ServerProvider {
-  id: ServerType
+  /** Registry key — a built-in ServerType id, or a plugin-defined id. */
+  id: string
   /** Supported Minecraft versions, newest first. */
   listGameVersions(): Promise<string[]>
   /** Builds available for a given Minecraft version, newest first. */

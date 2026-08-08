@@ -33,6 +33,7 @@ import {
   type InstancePatch
 } from './store/instances'
 import { listBackups, createBackup, restoreBackup, deleteBackup, pruneBackups } from './servers/backups'
+import { ensureRcon } from './servers/rcon-provision'
 import { resyncBackupSchedule } from './servers/backup-scheduler'
 import { getProvider } from './software'
 import { listJava, refreshJava, invalidateJavaCache } from './java/detect'
@@ -95,6 +96,7 @@ import {
   deleteContentFile,
   contentSearch,
   contentInstall,
+  contentSources,
   checkContentUpdates,
   updateContent
 } from './servers/content'
@@ -116,6 +118,13 @@ import {
   openConsole,
   sendViaConsole
 } from './pterodactyl/console'
+import {
+  listPlugins,
+  setPluginEnabled,
+  loadPlugins,
+  openPluginsFolder,
+  openPluginLog
+} from './plugins/host'
 
 /** Resolve the current data root or throw if it hasn't been chosen yet. */
 function requireRoot(): string {
@@ -405,30 +414,6 @@ export function registerIpc(): void {
     deleteBackup(requireRoot(), id, name)
   )
 
-  /**
-   * Provision app-managed local RCON for a server (used for silent TPS polling).
-   * Generates credentials once, then keeps server.properties in sync every start.
-   */
-  function ensureRcon(root: string, inst: Instance): Instance {
-    if (isProxy(inst.serverType)) return inst
-    let rcon = inst.rcon
-    if (!rcon) {
-      // Derive a port away from the game port; wrap back into range for high ports.
-      let rconPort = inst.port + 10000
-      if (rconPort > 65535) rconPort = inst.port - 10000
-      if (rconPort < 1024) rconPort = 25575
-      rcon = { port: rconPort, password: randomUUID().replace(/-/g, '') }
-      updateInstance(root, inst.id, { rcon })
-    }
-    setServerProperties(instanceDir(root, inst.id), {
-      'enable-rcon': 'true',
-      'rcon.port': rcon.port,
-      'rcon.password': rcon.password,
-      'broadcast-rcon-to-ops': 'false'
-    })
-    return { ...inst, rcon }
-  }
-
   // ---- Server lifecycle ----
   ipcMain.handle('server:start', (_e, id: string) => {
     const root = requireRoot()
@@ -449,6 +434,7 @@ export function registerIpc(): void {
   ipcMain.handle('server:running', () => servers.runningIds())
 
   // ---- Content (plugins / mods) ----
+  ipcMain.handle('content:sources', (_e, id: string) => contentSources(requireRoot(), id))
   ipcMain.handle('content:list', (_e, id: string) => listContent(requireRoot(), id))
   ipcMain.handle('content:add', (_e, id: string, paths: string[]) =>
     addContentFiles(requireRoot(), id, paths)
@@ -761,6 +747,15 @@ export function registerIpc(): void {
     }
   })
   ipcMain.handle('ptero:cloneCancel', () => cloneAbort?.abort())
+
+  // ---- App plugins ----
+  ipcMain.handle('plugins:list', () => listPlugins())
+  ipcMain.handle('plugins:setEnabled', (_e, id: string, enabled: boolean) =>
+    setPluginEnabled(id, enabled)
+  )
+  ipcMain.handle('plugins:reload', () => loadPlugins())
+  ipcMain.handle('plugins:openFolder', () => openPluginsFolder())
+  ipcMain.handle('plugins:openLog', (_e, id: string) => openPluginLog(id))
 
   // ---- App + updater ----
   ipcMain.handle('app:getVersion', () => app.getVersion())

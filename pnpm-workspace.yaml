@@ -1,0 +1,8 @@
+# Flat npm-style node_modules (no symlinks): Windows blocks symlink traversal on
+# this setup ("untrusted mount point"), and electron-builder prefers real files anyway.
+nodeLinker: hoisted
+
+allowBuilds:
+  electron: true
+  electron-winstaller: true
+  esbuild: true

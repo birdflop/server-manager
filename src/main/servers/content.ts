@@ -18,15 +18,15 @@ import type {
   ContentMeta,
   ContentSearchHit,
   ContentSource,
+  ContentSourceInfo,
   ContentUpdate,
   Instance
 } from '@shared/types'
-import { MODRINTH_LOADERS, contentDirOf, contentKindOf, contentSourcesOf } from '@shared/software'
+import { MODRINTH_LOADERS, contentDirOf, contentKindOf } from '@shared/software'
 import { readInstance, instanceDir } from '../store/instances'
 import { downloadFile } from '../util/net'
-import { searchModrinth, resolveModrinthDownload } from '../modrinth'
-import { searchHangar, resolveHangarDownload } from '../hangar'
-import { searchSpiget, resolveSpigetDownload } from '../spiget'
+import { getContentSource, contentSourcesForKind } from '../content'
+import type { ContentResolveContext, ResolvedContentDownload } from '../content'
 
 const META_FILE = '.birdflop-content.json'
 
@@ -55,17 +55,28 @@ function writeMeta(dir: string, map: ContentMetaMap): void {
   }
 }
 
+/** Loader/version context a content source needs to pick a compatible file. */
+function resolveCtx(inst: Instance): ContentResolveContext {
+  return { loaders: MODRINTH_LOADERS[inst.serverType] ?? [], mcVersion: inst.mcVersion }
+}
+
 /** Resolve the latest downloadable version of a project for an instance's loader/MC. */
 function resolveDownload(
   inst: Instance,
   source: ContentSource,
   projectId: string
-): Promise<{ url: string; filename: string; versionId: string; versionNumber?: string }> {
-  if (source === 'modrinth') {
-    return resolveModrinthDownload(projectId, MODRINTH_LOADERS[inst.serverType], inst.mcVersion)
-  }
-  if (source === 'hangar') return resolveHangarDownload(projectId)
-  return resolveSpigetDownload(projectId)
+): Promise<ResolvedContentDownload> {
+  return getContentSource(source).resolve(projectId, resolveCtx(inst))
+}
+
+/** Sources able to serve this server's content kind (built-ins + plugin-registered). */
+export function contentSources(root: string, id: string): ContentSourceInfo[] {
+  const inst = readInstance(root, id)
+  if (!inst) return []
+  return contentSourcesForKind(contentKindOf(inst.serverType)).map((p) => ({
+    id: p.id,
+    label: p.label
+  }))
 }
 
 export function listContent(root: string, id: string): ContentFile[] {
@@ -118,10 +129,10 @@ export function contentSearch(
   query: string
 ): Promise<ContentSearchHit[]> {
   const inst = readInstance(root, id)
-  if (!inst || !contentSourcesOf(inst.serverType).includes(source)) return Promise.resolve([])
-  if (source === 'modrinth') return searchModrinth(query, MODRINTH_LOADERS[inst.serverType])
-  if (source === 'hangar') return searchHangar(query)
-  return searchSpiget(query)
+  if (!inst) return Promise.resolve([])
+  const provider = contentSourcesForKind(contentKindOf(inst.serverType)).find((p) => p.id === source)
+  if (!provider) return Promise.resolve([])
+  return provider.search(query, resolveCtx(inst))
 }
 
 /** First two bytes of a zip/jar are "PK"; guards against saved HTML error pages. */
@@ -138,17 +149,18 @@ function isZip(path: string): boolean {
 }
 
 /**
- * Download one Modrinth project's primary file into `dir`, recording provenance in `meta`
+ * Download one project's primary file into `dir`, recording provenance in `meta`
  * (mutated in place, not flushed). Returns the saved filename + its required dependency
  * project ids. Skips the download if a file with that name already exists.
  */
-async function installModrinthProject(
+async function installProject(
   inst: Instance,
   dir: string,
+  source: ContentSource,
   projectId: string,
   meta: ContentMetaMap
 ): Promise<{ filename: string; requiredDeps: string[] }> {
-  const dl = await resolveModrinthDownload(projectId, MODRINTH_LOADERS[inst.serverType], inst.mcVersion)
+  const dl = await resolveDownload(inst, source, projectId)
   const filename = dl.filename.endsWith('.jar') ? dl.filename : `${dl.filename}.jar`
   const dest = join(dir, filename)
   if (!existsSync(dest)) {
@@ -163,12 +175,12 @@ async function installModrinthProject(
     }
   }
   meta[filename] = {
-    source: 'modrinth',
+    source,
     projectId,
     versionId: dl.versionId,
     versionNumber: dl.versionNumber
   }
-  return { filename, requiredDeps: dl.requiredDeps }
+  return { filename, requiredDeps: dl.requiredDeps ?? [] }
 }
 
 const MAX_DEP_DEPTH = 5
@@ -191,50 +203,32 @@ export async function contentInstall(
   mkdirSync(dir, { recursive: true })
   const meta = readMeta(dir)
 
-  if (source === 'modrinth') {
-    // Projects already installed (any file with that provenance) — don't re-pull as a dependency.
-    const installedProjects = new Set<string>()
-    for (const m of Object.values(meta)) if (m.source === 'modrinth') installedProjects.add(m.projectId)
+  // Projects already installed from this source — don't re-pull as a dependency.
+  const installedProjects = new Set<string>()
+  for (const m of Object.values(meta)) if (m.source === source) installedProjects.add(m.projectId)
 
-    // Install the chosen project, then breadth-first install its required dependencies.
-    const root0 = await installModrinthProject(inst, dir, projectId, meta)
-    installedProjects.add(projectId)
+  // Install the chosen project, then breadth-first install its required dependencies
+  // (sources without a dependency graph report none, so this is a single install).
+  const root0 = await installProject(inst, dir, source, projectId, meta)
+  installedProjects.add(projectId)
 
-    const seen = new Set<string>([projectId])
-    let frontier = root0.requiredDeps
-    for (let depth = 0; frontier.length && depth < MAX_DEP_DEPTH; depth++) {
-      const next: string[] = []
-      for (const dep of frontier) {
-        if (seen.has(dep) || installedProjects.has(dep)) continue
-        seen.add(dep)
-        try {
-          const r = await installModrinthProject(inst, dir, dep, meta)
-          installedProjects.add(dep)
-          next.push(...r.requiredDeps)
-        } catch {
-          /* a dependency without a build for this loader/MC — skip it rather than failing the install */
-        }
+  const seen = new Set<string>([projectId])
+  let frontier = root0.requiredDeps
+  for (let depth = 0; frontier.length && depth < MAX_DEP_DEPTH; depth++) {
+    const next: string[] = []
+    for (const dep of frontier) {
+      if (seen.has(dep) || installedProjects.has(dep)) continue
+      seen.add(dep)
+      try {
+        const r = await installProject(inst, dir, source, dep, meta)
+        installedProjects.add(dep)
+        next.push(...r.requiredDeps)
+      } catch {
+        /* a dependency without a build for this loader/MC — skip it rather than failing the install */
       }
-      frontier = next
     }
-    writeMeta(dir, meta)
-    return listContent(root, id)
+    frontier = next
   }
-
-  // Hangar / SpigotMC: single-file install (no dependency graph exposed).
-  const dl = await resolveDownload(inst, source, projectId)
-  const filename = dl.filename.endsWith('.jar') ? dl.filename : `${dl.filename}.jar`
-  const dest = join(dir, filename)
-  await downloadFile(dl.url, dest)
-  if (!isZip(dest)) {
-    try {
-      rmSync(dest)
-    } catch {
-      /* ignore */
-    }
-    throw new Error("Couldn't fetch a jar directly (it may be hosted off-site) — use “Open page”.")
-  }
-  meta[filename] = { source, projectId, versionId: dl.versionId, versionNumber: dl.versionNumber }
   writeMeta(dir, meta)
   return listContent(root, id)
 }
