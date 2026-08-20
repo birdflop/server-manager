@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/birdflop/server-manager/compare/v0.8.0...v0.9.0) (2026-08-20)
+
+
+### Features
+
+* **plugins:** add server management and group APIs ([a19d1c9](https://github.com/birdflop/server-manager/commit/a19d1c91e05036050522ebdfdb725adddb680197))
+* **plugins:** implement plugin architecture with process isolation ([ba5eb76](https://github.com/birdflop/server-manager/commit/ba5eb765e92e641c6b3a49c301ee0da1495feda8))
+
 ## [0.8.0](https://github.com/birdflop/server-manager/compare/v0.7.0...v0.8.0) (2026-07-02)
 
 
