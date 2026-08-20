@@ -1,6 +1,6 @@
 {
   "name": "birdflop-server-manager",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Local Minecraft test-server manager",
   "main": "./out/main/index.js",
   "author": {
