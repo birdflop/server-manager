@@ -1,18 +1,40 @@
 import { app, ipcMain, BrowserWindow } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Instance, ServerStatus } from '@shared/types'
+import type { Instance, ManagerIndex, ServerStatus } from '@shared/types'
 import { getConfig } from '../config'
-import { readIndex, readInstance, instanceDir } from '../store/instances'
+import {
+  createGroup,
+  deleteGroup,
+  deleteInstance,
+  instanceDir,
+  moveInstance,
+  readIndex,
+  readInstance,
+  renameGroup,
+  updateInstance
+} from '../store/instances'
 import * as servers from '../servers/registry'
 import { perfOf } from '../servers/perf'
 import { ensureRcon } from '../servers/rcon-provision'
+import { createInstance, resolveCreateDefaults } from '../servers/create'
+import { stopDevLink } from '../servers/devlink'
 import { registerContentSource, unregisterContentSource, getContentSource } from '../content'
 import { registerTunnelProvider, unregisterTunnelProvider, getTunnelProvider } from '../tunnels'
-import { registerServerProvider, unregisterServerProvider, getProvider } from '../software'
+import {
+  registerServerProvider,
+  unregisterServerProvider,
+  getProvider,
+  listServerProviders
+} from '../software'
 import { createPluginLogger } from './log'
 import type { PluginManifest } from './manifest'
-import type { PluginContext, PluginPermission, PluginServerInfo } from './api'
+import type {
+  PluginContext,
+  PluginGroupInfo,
+  PluginPermission,
+  PluginServerInfo
+} from './api'
 
 /** A built context plus the teardown that undoes everything the plugin registered. */
 export interface PluginContextHandle {
@@ -33,15 +55,30 @@ function requireInstance(id: string): { root: string; inst: Instance } {
   return { root, inst }
 }
 
-function toInfo(inst: Instance): PluginServerInfo {
+function toInfo(inst: Instance, groupId: string | null): PluginServerInfo {
   return {
     id: inst.id,
     name: inst.name,
     serverType: inst.serverType,
     mcVersion: inst.mcVersion,
     port: inst.port,
-    status: servers.statusOf(inst.id)
+    status: servers.statusOf(inst.id),
+    groupId
   }
+}
+
+function groupIdOf(root: string, id: string): string | null {
+  return readIndex(root).instances.find((m) => m.id === id)?.groupId ?? null
+}
+
+/**
+ * Tell open windows the index changed. The renderer refreshes itself after its
+ * own mutations, but a plugin creating or deleting servers happens behind its
+ * back — without this the sidebar would go stale until the next reload.
+ */
+function announceIndex(index: ManagerIndex): ManagerIndex {
+  for (const w of BrowserWindow.getAllWindows()) w.webContents.send('index:changed', index)
+  return index
 }
 
 /** True when a registry lookup succeeds (they throw on unknown ids). */
@@ -93,14 +130,17 @@ export function createPluginContext(manifest: PluginManifest): PluginContextHand
         need('servers:read')
         const root = requireRoot()
         return readIndex(root)
-          .instances.map((m) => readInstance(root, m.id))
-          .filter((i): i is Instance => i !== null)
-          .map(toInfo)
+          .instances.map((m) => {
+            const inst = readInstance(root, m.id)
+            return inst ? toInfo(inst, m.groupId) : null
+          })
+          .filter((i): i is PluginServerInfo => i !== null)
       },
       get: async (serverId) => {
         need('servers:read')
-        const inst = readInstance(requireRoot(), serverId)
-        return inst ? toInfo(inst) : null
+        const root = requireRoot()
+        const inst = readInstance(root, serverId)
+        return inst ? toInfo(inst, groupIdOf(root, serverId)) : null
       },
       status: async (serverId) => {
         need('servers:read')
@@ -152,6 +192,82 @@ export function createPluginContext(manifest: PluginManifest): PluginContextHand
         need('servers:control')
         if (!servers.isRunning(serverId)) throw new Error('Server is not running')
         servers.sendCommand(serverId, command)
+      },
+      create: async (options) => {
+        need('servers:manage')
+        const root = requireRoot()
+        if (!options?.name?.trim()) throw new Error('A server needs a name')
+        const payload = await resolveCreateDefaults(root, { ...options, name: options.name.trim() })
+        const { instance, index } = await createInstance(root, payload)
+        announceIndex(index)
+        return toInfo(instance, payload.groupId)
+      },
+      delete: async (serverId) => {
+        need('servers:manage')
+        const root = requireRoot()
+        if (!readInstance(root, serverId)) throw new Error(`No server with id "${serverId}"`)
+        servers.stop(serverId) // don't delete a folder the JVM still holds open
+        stopDevLink(serverId)
+        announceIndex(deleteInstance(root, serverId))
+      },
+      rename: async (serverId, name) => {
+        need('servers:manage')
+        if (!name?.trim()) throw new Error('A server needs a name')
+        const result = updateInstance(requireRoot(), serverId, { name: name.trim() })
+        if (!result) throw new Error(`No server with id "${serverId}"`)
+        announceIndex(result.index)
+      },
+      move: async (serverId, groupId, beforeId) => {
+        need('servers:manage')
+        const root = requireRoot()
+        const index = readIndex(root)
+        if (!index.instances.some((m) => m.id === serverId)) {
+          throw new Error(`No server with id "${serverId}"`)
+        }
+        if (groupId && !index.groups.some((g) => g.id === groupId)) {
+          throw new Error(`No group with id "${groupId}"`)
+        }
+        announceIndex(moveInstance(root, serverId, groupId, beforeId))
+      }
+    },
+
+    groups: {
+      list: async () => {
+        need('servers:read')
+        const index = readIndex(requireRoot())
+        return index.groups.map(
+          (g): PluginGroupInfo => ({
+            id: g.id,
+            name: g.name,
+            serverIds: index.instances.filter((m) => m.groupId === g.id).map((m) => m.id)
+          })
+        )
+      },
+      create: async (name) => {
+        need('servers:manage')
+        if (!name?.trim()) throw new Error('A group needs a name')
+        const before = new Set(readIndex(requireRoot()).groups.map((g) => g.id))
+        const index = announceIndex(createGroup(requireRoot(), name))
+        const created = index.groups.find((g) => !before.has(g.id))
+        if (!created) throw new Error('Group creation failed')
+        return { id: created.id, name: created.name, serverIds: [] }
+      },
+      rename: async (groupId, name) => {
+        need('servers:manage')
+        const root = requireRoot()
+        if (!name?.trim()) throw new Error('A group needs a name')
+        if (!readIndex(root).groups.some((g) => g.id === groupId)) {
+          throw new Error(`No group with id "${groupId}"`)
+        }
+        announceIndex(renameGroup(root, groupId, name))
+      },
+      delete: async (groupId) => {
+        need('servers:manage')
+        const root = requireRoot()
+        if (!readIndex(root).groups.some((g) => g.id === groupId)) {
+          throw new Error(`No group with id "${groupId}"`)
+        }
+        announceIndex(deleteGroup(root, groupId))
       }
     },
 
@@ -214,6 +330,18 @@ export function createPluginContext(manifest: PluginManifest): PluginContextHand
         }
         registerServerProvider(provider)
         cleanups.push(() => unregisterServerProvider(provider.id))
+      },
+      listTypes: async () => {
+        need('servers:read')
+        return listServerProviders().map((p) => p.id)
+      },
+      listVersions: async (serverType) => {
+        need('servers:read')
+        return getProvider(serverType).listGameVersions()
+      },
+      listBuilds: async (serverType, mcVersion) => {
+        need('servers:read')
+        return getProvider(serverType).listBuilds(mcVersion)
       }
     }
   }

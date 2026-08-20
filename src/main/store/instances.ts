@@ -1,4 +1,4 @@
-import { join } from 'node:path'
+import { join, resolve, relative, dirname, isAbsolute, sep } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import {
   readFileSync,
@@ -6,6 +6,7 @@ import {
   existsSync,
   mkdirSync,
   rmSync,
+  renameSync,
   readdirSync,
   lstatSync,
   statSync,
@@ -31,9 +32,91 @@ export function instancesDir(root: string): string {
   return join(root, 'instances')
 }
 
-/** Path to a single instance's folder. */
-export function instanceDir(root: string, id: string): string {
+/**
+ * External instance paths from the index, cached because `instanceDir` is on the hot
+ * path of nearly every instance operation and we don't want to re-read + parse the
+ * index each time. Keyed on the index file's mtime so hand-edits are picked up too.
+ */
+let overrideCache: { root: string; mtimeMs: number; paths: Map<string, string> } | null = null
+
+function pathOverrides(root: string): Map<string, string> {
+  let mtimeMs: number
+  try {
+    mtimeMs = statSync(indexPath(root)).mtimeMs
+  } catch {
+    return new Map() // no index yet — everything is in the default layout
+  }
+  if (overrideCache && overrideCache.root === root && overrideCache.mtimeMs === mtimeMs) {
+    return overrideCache.paths
+  }
+  const paths = new Map<string, string>()
+  for (const meta of readIndex(root).instances) {
+    if (meta.path) paths.set(meta.id, resolve(meta.path))
+  }
+  overrideCache = { root, mtimeMs, paths }
+  return paths
+}
+
+/** The folder an instance would occupy under the standard managed layout. */
+function managedDir(root: string, id: string): string {
   return join(instancesDir(root), id)
+}
+
+/**
+ * Path to a single instance's folder — `<root>/instances/<id>` unless the index gives
+ * it an explicit `path`, which lets a server live beside the project it tests.
+ */
+export function instanceDir(root: string, id: string): string {
+  return pathOverrides(root).get(id) ?? managedDir(root, id)
+}
+
+/** Whether an instance's folder lives outside the data root (see `InstanceMeta.path`). */
+export function isExternalInstance(root: string, id: string): boolean {
+  return pathOverrides(root).has(id)
+}
+
+/** True when `child` is `parent` or sits somewhere beneath it. */
+function isWithin(parent: string, child: string): boolean {
+  const rel = relative(parent, child)
+  return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..' && !isAbsolute(rel))
+}
+
+/**
+ * Move an instance's folder to `dest` and record it in the index, so a dev server can sit
+ * next to the plugin repo it tests. Moving it back under `<root>/instances/<id>` drops the
+ * override and returns it to the managed layout.
+ *
+ * The caller must stop the server first: a cross-drive move falls back to copy-then-delete,
+ * and files locked by a running JVM would be skipped by the copy.
+ */
+export function relocateInstance(root: string, id: string, dest: string): ManagerIndex {
+  const from = instanceDir(root, id)
+  const to = resolve(dest)
+
+  if (!existsSync(from)) throw new Error('Server folder not found')
+  if (isWithin(from, to)) throw new Error("Can't move a server folder into itself")
+  if (existsSync(to) && readdirSync(to).length > 0) {
+    throw new Error(`${to} already exists and isn't empty`)
+  }
+
+  if (from !== to) {
+    mkdirSync(dirname(to), { recursive: true })
+    try {
+      renameSync(from, to)
+    } catch (err) {
+      // Moving across drives can't be a rename; copy the tree and drop the original.
+      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err
+      copyTree(from, to)
+      rmSync(from, { recursive: true, force: true })
+    }
+  }
+
+  return mutateIndex(root, (index) => {
+    const meta = index.instances.find((i) => i.id === id)
+    if (!meta) return
+    if (to === managedDir(root, id)) delete meta.path
+    else meta.path = to
+  })
 }
 
 /**
@@ -66,6 +149,7 @@ export function readIndex(root: string): ManagerIndex {
 
 export function writeIndex(root: string, index: ManagerIndex): void {
   writeFileSync(indexPath(root), JSON.stringify(index, null, 2), 'utf-8')
+  overrideCache = null // don't rely on mtime resolution for our own writes
 }
 
 /** Read, mutate, persist, and return the index. */
@@ -359,12 +443,18 @@ export function listFolderJars(path: string): string[] {
   }
 }
 
-/** Remove an instance's folder and its index entry. */
+/**
+ * Remove an instance's folder and its index entry. Instances with an external `path`
+ * are only unlinked from the index — that folder is somewhere the user chose (typically
+ * a git checkout beside their plugin sources), so it isn't ours to delete.
+ */
 export function deleteInstance(root: string, id: string): ManagerIndex {
-  try {
-    rmSync(instanceDir(root, id), { recursive: true, force: true })
-  } catch {
-    /* ignore filesystem errors; still drop from the index */
+  if (!isExternalInstance(root, id)) {
+    try {
+      rmSync(instanceDir(root, id), { recursive: true, force: true })
+    } catch {
+      /* ignore filesystem errors; still drop from the index */
+    }
   }
   return removeInstanceMeta(root, id)
 }

@@ -162,6 +162,8 @@ export const useApp = create<AppState>((set, get) => ({
     )
     // Keep the plugin list live (loads finish after the window appears).
     window.api.onPluginsChanged((plugins) => set({ plugins }))
+    // Plugins can create/delete servers and groups behind the UI's back.
+    window.api.onIndexChanged((next) => set({ index: next }))
     const [appVersion, update, plugins] = await Promise.all([
       window.api.getAppVersion(),
       window.api.getUpdateStatus(),

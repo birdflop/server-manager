@@ -56,8 +56,9 @@ Declare what you use in `plugin.json`; calls without the matching permission thr
 
 | Permission | Grants |
 | --- | --- |
-| `servers:read` | list/status/console/performance + server events |
+| `servers:read` | list/status/console/performance + server events, group list, software catalog |
 | `servers:control` | start/stop/restart/sendCommand |
+| `servers:manage` | create/delete/rename/move servers, create/rename/delete groups |
 | `content:sources` | register a plugin/mod search+install source |
 | `tunnels:providers` | register a tunnel provider (inline plugins only) |
 | `software:providers` | register a server-software provider |

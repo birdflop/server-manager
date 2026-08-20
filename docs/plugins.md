@@ -6,7 +6,8 @@ servers, add plugin/mod download sources, tunnel providers, server-software
 providers, console macro buttons, and expose their own IPC to the renderer.
 
 The [MCP bridge](../examples/plugins/mcp-bridge) is a complete worked example:
-it exposes your servers to Claude Code (or any MCP client) over local HTTP.
+it lets Claude Code (or any MCP client) create, organize, and control your
+servers over local HTTP.
 
 ## Anatomy
 
@@ -75,13 +76,14 @@ sync when it changes.
 
 | ctx | You can |
 | --- | --- |
-| `servers` | list servers, read console scrollback, get TPS/MSPT, subscribe to output/status/exit events, start/stop/restart, send commands |
+| `servers` | list servers, read console scrollback, get TPS/MSPT, subscribe to output/status/exit events, start/stop/restart, send commands, create/delete/rename/move servers |
+| `groups` | list, create, rename, and delete the sidebar groups servers are filed under |
 | `storage` | persist JSON per plugin (`<userData>/plugin-data/<id>.json`) |
 | `log` | write to `<userData>/plugin-logs/<id>.log` (viewable from Settings) |
 | `ipc` | answer `window.api.invokePlugin(id, verb, …)` calls and broadcast to `window.api.onPluginEvent(id, event, cb)` listeners |
 | `content.registerSource` | add a search+install source that appears in every server's Plugins/Mods → Browse tab |
 | `tunnels.registerProvider` | add a way to share servers publicly (inline plugins only) |
-| `software.registerProvider` | add a server-software download provider |
+| `software` | browse the install catalog (`listTypes`/`listVersions`/`listBuilds`) and register a server-software download provider |
 
 ## Trust model
 

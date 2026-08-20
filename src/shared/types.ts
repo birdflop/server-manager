@@ -47,6 +47,13 @@ export interface InstanceMeta {
   name: string
   groupId: string | null
   order: number
+  /**
+   * Absolute path to the server folder when it lives outside `<root>/instances/<id>` —
+   * e.g. a dev server checked out next to the plugin repo it tests. Absent for the
+   * normal managed layout. Because the folder isn't ours, deleting the server only
+   * unlinks it from the index and leaves the files alone.
+   */
+  path?: string
 }
 
 /** A collapsible organizational folder in the sidebar. */
@@ -196,6 +203,13 @@ export interface ProxyBackend {
   address: string
   /** The managed instance this points at, if any (used for live status + auto-fill). */
   instanceId?: string
+}
+
+/** Resolved on-disk location of a server's folder. */
+export interface InstanceLocation {
+  path: string
+  /** True when the folder sits outside `<root>/instances` (see `InstanceMeta.path`). */
+  external: boolean
 }
 
 /** Index file persisted at <root>/birdflop-manager.json. */
@@ -899,6 +913,11 @@ export interface BirdflopApi {
   setRoot(path: string): Promise<ManagerIndex>
   /** Read the manager index (groups + instance list) from the current root. */
   getIndex(): Promise<ManagerIndex>
+  /**
+   * Subscribe to index changes made outside the renderer — currently plugins
+   * creating/deleting servers and groups. Returns an unsubscribe fn.
+   */
+  onIndexChanged(cb: (index: ManagerIndex) => void): () => void
 
   // Groups
   createGroup(name: string): Promise<ManagerIndex>
@@ -964,10 +983,21 @@ export interface BirdflopApi {
    * unsaved edits (RAM, Java, args, override) without persisting them.
    */
   launchPreview(id: string, patch?: Partial<Instance>): Promise<LaunchPreview>
-  /** Delete a server (folder + index entry). */
+  /** Delete a server (folder + index entry). Servers in an external folder are only unlinked. */
   deleteInstance(id: string): Promise<ManagerIndex>
   /** Open a folder inside the server (relPath, default the root) in the OS file manager. */
   openInstanceFolder(id: string, relPath?: string): Promise<void>
+  /** Where a server's files live, and whether that's outside the data root. */
+  instanceLocation(id: string): Promise<InstanceLocation>
+  /**
+   * Move a server's folder elsewhere — e.g. beside the plugin repo it tests — and remember
+   * it there. Prompts for a destination when `dest` is omitted; resolves to null if the
+   * picker is cancelled. The server must be stopped.
+   */
+  relocateInstance(
+    id: string,
+    dest?: string
+  ): Promise<{ index: ManagerIndex; location: InstanceLocation } | null>
   /** Duplicate an instance (copies files, new id + bumped port). */
   cloneInstance(id: string): Promise<{ instance: Instance; index: ManagerIndex }>
   /** Read a proxy's configured backend servers. */

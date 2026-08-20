@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react'
 import {
   FolderOpen,
+  FolderInput,
   Save,
   Trash2,
   AlertTriangle,
@@ -20,6 +21,7 @@ import type {
   DebugConfig,
   DevLinkConfig,
   Instance,
+  InstanceLocation,
   InstanceTemplate,
   JavaInstall,
   LaunchPreview,
@@ -30,6 +32,7 @@ import type {
 import { DEFAULT_DEBUG, DEFAULT_DEVLINK, DEFAULT_WATCH } from '@shared/types'
 import { SERVER_TYPE_MAP, contentDirOf, contentKindOf, isProxy } from '@shared/software'
 import { useApp } from '../store'
+import { friendlyError } from '../errors'
 
 function ramLabel(mb: number): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(mb % 1024 === 0 ? 0 : 1)} GB` : `${mb} MB`
@@ -89,6 +92,32 @@ export function SettingsView({
   const templates = useApp((s) => s.config?.templates ?? [])
   const [savedTpl, setSavedTpl] = useState(false)
   const [exportedRecipe, setExportedRecipe] = useState(false)
+  const refreshIndex = useApp((s) => s.refreshIndex)
+  const [location, setLocation] = useState<InstanceLocation | null>(null)
+  const [moving, setMoving] = useState(false)
+  const [moveError, setMoveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setMoveError(null)
+    void window.api.instanceLocation(instance.id).then(setLocation)
+  }, [instance.id])
+
+  /** Move this server's folder somewhere else — e.g. next to the plugin repo it tests. */
+  async function moveFolder(): Promise<void> {
+    setMoveError(null)
+    setMoving(true)
+    try {
+      const result = await window.api.relocateInstance(instance.id)
+      if (result) {
+        setLocation(result.location)
+        await refreshIndex()
+      }
+    } catch (err) {
+      setMoveError(friendlyError(err))
+    } finally {
+      setMoving(false)
+    }
+  }
 
   async function exportRecipe(): Promise<void> {
     const path = await window.api.exportRecipe(instance.id)
@@ -365,13 +394,41 @@ export function SettingsView({
           <dt className="text-fg-muted">Created</dt>
           <dd>{instance.createdAt ? new Date(instance.createdAt).toLocaleString() : '—'}</dd>
           <dt className="text-fg-muted">Directory</dt>
-          <dd className="flex items-center gap-2">
-            <button
-              onClick={() => void window.api.openInstanceFolder(instance.id)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
-            >
-              <FolderOpen size={13} /> Open folder
-            </button>
+          <dd className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => void window.api.openInstanceFolder(instance.id)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg"
+              >
+                <FolderOpen size={13} /> Open folder
+              </button>
+              <button
+                onClick={() => void moveFolder()}
+                disabled={moving || status !== 'stopped'}
+                title={
+                  status === 'stopped'
+                    ? 'Move this folder elsewhere — e.g. beside the plugin project it tests'
+                    : 'Stop the server first'
+                }
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {moving ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <FolderInput size={13} />
+                )}
+                Move…
+              </button>
+              {location?.external && (
+                <span className="rounded-md bg-surface-2 px-1.5 py-0.5 text-[11px] text-fg-muted">
+                  outside the data root
+                </span>
+              )}
+            </div>
+            {location && (
+              <p className="break-all font-mono text-xs text-fg-muted">{location.path}</p>
+            )}
+            {moveError && <p className="text-xs text-red-400">{moveError}</p>}
           </dd>
         </dl>
       </section>

@@ -5,6 +5,7 @@ import type {
   CompatRun,
   InstallProgress,
   JavaProgress,
+  ManagerIndex,
   PluginInfo,
   PteroOutputEvent,
   PteroStateEvent,
@@ -30,6 +31,11 @@ const api: BirdflopApi = {
   pickDirectory: () => ipcRenderer.invoke('dialog:pickDirectory'),
   setRoot: (path) => ipcRenderer.invoke('app:setRoot', path),
   getIndex: () => ipcRenderer.invoke('index:get'),
+  onIndexChanged: (cb) => {
+    const listener = (_e: unknown, index: ManagerIndex): void => cb(index)
+    ipcRenderer.on('index:changed', listener)
+    return () => ipcRenderer.removeListener('index:changed', listener)
+  },
   createGroup: (name) => ipcRenderer.invoke('groups:create', name),
   renameGroup: (id, name) => ipcRenderer.invoke('groups:rename', id, name),
   deleteGroup: (id) => ipcRenderer.invoke('groups:delete', id),
@@ -61,6 +67,8 @@ const api: BirdflopApi = {
   updateInstance: (id, patch) => ipcRenderer.invoke('instances:update', id, patch),
   deleteInstance: (id) => ipcRenderer.invoke('instances:delete', id),
   openInstanceFolder: (id, relPath) => ipcRenderer.invoke('instances:openFolder', id, relPath),
+  instanceLocation: (id) => ipcRenderer.invoke('instances:location', id),
+  relocateInstance: (id, dest) => ipcRenderer.invoke('instances:relocate', id, dest),
   cloneInstance: (id) => ipcRenderer.invoke('instances:clone', id),
   getProxyBackends: (id) => ipcRenderer.invoke('proxy:getBackends', id),
   setProxyBackends: (id, backends) => ipcRenderer.invoke('proxy:setBackends', id, backends),

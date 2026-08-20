@@ -1,12 +1,11 @@
 import { app, ipcMain, dialog, shell, clipboard, BrowserWindow } from 'electron'
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { writeFileSync } from 'node:fs'
 import type {
   AppConfig,
   CreateInstancePayload,
   ImportInstancePayload,
   Instance,
-  InstallProgress,
+  InstanceLocation,
   ManagerIndex,
   ProxyBackend,
   ServerType,
@@ -21,7 +20,6 @@ import {
   deleteGroup,
   setGroupExpanded,
   moveInstance,
-  addInstanceMeta,
   readInstance,
   writeInstance,
   updateInstance,
@@ -30,6 +28,8 @@ import {
   importInstance,
   listFolderJars,
   instanceDir,
+  isExternalInstance,
+  relocateInstance,
   type InstancePatch
 } from './store/instances'
 import { listBackups, createBackup, restoreBackup, deleteBackup, pruneBackups } from './servers/backups'
@@ -46,11 +46,10 @@ import {
   quitAndInstall,
   applyUpdateChannel
 } from './updater'
-import { installServer } from './servers/install'
+import { createInstance } from './servers/create'
 import { previewLaunch } from './servers/launch'
 import { importModpack } from './modpack'
 import {
-  writeEula,
   setServerProperties,
   readServerProperties,
   setProxyPort,
@@ -225,54 +224,9 @@ export function registerIpc(): void {
       .filter((i): i is NonNullable<typeof i> => i !== null)
   })
 
-  ipcMain.handle('instances:create', async (e, payload: CreateInstancePayload) => {
-    const root = requireRoot()
-    const id = randomUUID()
-    const dir = instanceDir(root, id)
-    mkdirSync(dir, { recursive: true })
-
-    const send = (p: InstallProgress): void => e.sender.send('instances:createProgress', p)
-
-    send({ phase: 'resolve' })
-    const spec = await getProvider(payload.serverType).resolveInstall(
-      payload.mcVersion,
-      payload.build
-    )
-    const result = await installServer(dir, spec, payload.javaPath, send)
-
-    send({ phase: 'configure' })
-    if (isProxy(payload.serverType)) {
-      // Proxies have no Minecraft EULA and use their own config file for the bind port.
-      setProxyPort(dir, payload.serverType, payload.port)
-    } else {
-      if (payload.eulaAccepted) writeEula(dir, true)
-      setServerProperties(dir, { 'server-port': payload.port })
-    }
-
-    const instance: Instance = {
-      id,
-      name: payload.name,
-      serverType: payload.serverType,
-      mcVersion: payload.mcVersion,
-      build: payload.build,
-      launchKind: result.launchKind,
-      launchJar: result.launchJar,
-      port: payload.port,
-      ramMB: payload.ramMB,
-      javaPath: payload.javaPath,
-      jvmArgs: payload.jvmArgs,
-      eulaAccepted: payload.eulaAccepted,
-      createdAt: Date.now()
-    }
-    writeInstance(root, instance)
-    const index = addInstanceMeta(root, {
-      id,
-      name: instance.name,
-      groupId: payload.groupId ?? null
-    })
-    send({ phase: 'done' })
-    return { instance, index }
-  })
+  ipcMain.handle('instances:create', (e, payload: CreateInstancePayload) =>
+    createInstance(requireRoot(), payload, (p) => e.sender.send('instances:createProgress', p))
+  )
 
   ipcMain.handle('instances:update', (_e, id: string, patch: InstancePatch) => {
     const root = requireRoot()
@@ -303,6 +257,41 @@ export function registerIpc(): void {
 
   ipcMain.handle('instances:openFolder', (_e, id: string, relPath?: string) => {
     shell.openPath(instanceSubdir(requireRoot(), id, relPath ?? ''))
+  })
+
+  ipcMain.handle('instances:location', (_e, id: string): InstanceLocation => {
+    const root = requireRoot()
+    return { path: instanceDir(root, id), external: isExternalInstance(root, id) }
+  })
+
+  ipcMain.handle('instances:relocate', async (_e, id: string, dest?: string) => {
+    const root = requireRoot()
+    // The move is a rename (or a copy across drives); either way a live JVM holding the
+    // world files would break it, so make the caller stop the server first.
+    if (servers.isRunning(id)) throw new Error('Stop the server before moving its folder.')
+
+    let target = dest
+    if (!target) {
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const opts = {
+        title: 'Choose a new folder for this server',
+        properties: ['openDirectory', 'createDirectory'] as const
+      }
+      const result = win
+        ? await dialog.showOpenDialog(win, { ...opts, properties: [...opts.properties] })
+        : await dialog.showOpenDialog({ ...opts, properties: [...opts.properties] })
+      if (result.canceled || result.filePaths.length === 0) return null
+      target = result.filePaths[0]
+    }
+
+    stopDevLink(id) // the watcher is re-attached below against the new location
+    const index = relocateInstance(root, id, target)
+    const moved = readInstance(root, id)
+    if (moved?.devLink?.enabled) syncDevLink(root, moved)
+    return {
+      index,
+      location: { path: instanceDir(root, id), external: isExternalInstance(root, id) }
+    }
   })
 
   ipcMain.handle('instances:clone', (_e, id: string) => cloneInstance(requireRoot(), id))

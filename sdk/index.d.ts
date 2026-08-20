@@ -165,6 +165,8 @@ export interface PluginServerInfo {
   mcVersion: string
   port: number
   status: ServerStatus
+  /** The group it sits in, or null when ungrouped. */
+  groupId: string | null
 }
 
 /** Latest tick metrics for a running server. */
@@ -174,7 +176,44 @@ export interface PluginServerPerf {
   mspt?: number
 }
 
-/** Requires 'servers:read'; mutating calls additionally require 'servers:control'. */
+/** A sidebar group, as visible to plugins. */
+export interface PluginGroupInfo {
+  id: string
+  name: string
+  /** Ids of the servers in this group, in sidebar order. */
+  serverIds: string[]
+}
+
+/**
+ * What to install when creating a server. Only `name` and `serverType` are
+ * required — everything else defaults to the latest game version and build for
+ * that software, the first free port from 25565, the app's configured RAM
+ * default, and a Java runtime matching the game version (downloaded if the
+ * machine has none that fits).
+ */
+export interface PluginCreateServerOptions {
+  name: string
+  /** Software id, e.g. 'paper', 'fabric', 'velocity' — see `software.listTypes()`. */
+  serverType: string
+  mcVersion?: string
+  /** Build id from `software.listBuilds()`; defaults to the newest. */
+  build?: string
+  port?: number
+  ramMB?: number
+  javaPath?: string
+  jvmArgs?: string[]
+  /**
+   * Accepts the Minecraft EULA on the user's behalf. Leave false unless the
+   * user has actually agreed — a server without it won't start.
+   */
+  eulaAccepted?: boolean
+  groupId?: string | null
+}
+
+/**
+ * Requires 'servers:read'; start/stop/restart/sendCommand additionally require
+ * 'servers:control', and create/delete/rename/move require 'servers:manage'.
+ */
 export interface PluginServersApi {
   list(): Promise<PluginServerInfo[]>
   get(id: string): Promise<PluginServerInfo | null>
@@ -189,6 +228,34 @@ export interface PluginServersApi {
   stop(id: string): Promise<void>
   restart(id: string): Promise<void>
   sendCommand(id: string, command: string): Promise<void>
+  /** Download + install a new server. Resolves once it's ready to start. */
+  create(options: PluginCreateServerOptions): Promise<PluginServerInfo>
+  /** Delete a server: stops it, then removes its folder and index entry. */
+  delete(id: string): Promise<void>
+  rename(id: string, name: string): Promise<void>
+  /** Move a server into a group (null = ungrouped), optionally before another server. */
+  move(id: string, groupId: string | null, beforeId?: string | null): Promise<void>
+}
+
+/** Requires 'servers:read' to list; mutating calls require 'servers:manage'. */
+export interface PluginGroupsApi {
+  list(): Promise<PluginGroupInfo[]>
+  /** Create a group and return it. */
+  create(name: string): Promise<PluginGroupInfo>
+  rename(id: string, name: string): Promise<void>
+  /** Delete a group. Its servers survive — they fall back to ungrouped. */
+  delete(id: string): Promise<void>
+}
+
+/** Registering requires 'software:providers'; the catalog reads require 'servers:read'. */
+export interface PluginSoftwareApi {
+  registerProvider(provider: ServerProvider): void
+  /** Every server software the app can install, built-in and plugin-registered. */
+  listTypes(): Promise<string[]>
+  /** Minecraft versions available for a software id, newest first. */
+  listVersions(serverType: string): Promise<string[]>
+  /** Builds available for a (software, version) pair, newest first. */
+  listBuilds(serverType: string, mcVersion: string): Promise<Build[]>
 }
 
 /** Per-plugin persistent JSON storage. */
@@ -227,6 +294,7 @@ export interface PluginContext {
     dir: string
   }
   servers: PluginServersApi
+  groups: PluginGroupsApi
   storage: PluginStorageApi
   log: PluginLogger
   ipc: PluginIpcApi
@@ -234,8 +302,7 @@ export interface PluginContext {
   content: { registerSource(provider: ContentSourceProvider): void }
   /** Requires 'tunnels:providers'. Inline plugins only. */
   tunnels: { registerProvider(provider: TunnelProvider): void }
-  /** Requires 'software:providers'. */
-  software: { registerProvider(provider: ServerProvider): void }
+  software: PluginSoftwareApi
 }
 
 /** Shape of a plugin's entry module. */
@@ -249,6 +316,7 @@ export interface BirdflopPlugin {
 export type PluginPermission =
   | 'servers:read'
   | 'servers:control'
+  | 'servers:manage'
   | 'content:sources'
   | 'tunnels:providers'
   | 'software:providers'

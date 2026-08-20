@@ -23,7 +23,13 @@ export interface PluginProcessHandle {
 }
 
 /** Context method paths the child may call directly. */
-const CALLABLE = /^(servers|storage|log)\.[a-zA-Z]+$/
+const CALLABLE = /^(servers|groups|storage|log|software)\.[a-zA-Z]+$/
+
+/**
+ * Methods that look callable but take live callbacks or objects that can't cross
+ * the bridge — they have their own message types (subscribe/provider-register).
+ */
+const BRIDGE_EXCLUDED = new Set(['servers.onEvent', 'software.registerProvider'])
 
 /**
  * Fork a plugin into an Electron utilityProcess and bridge its PluginContext
@@ -86,11 +92,11 @@ export function startPluginProcess(
       handle.ctx.ipc.broadcast(args[0] as string, args[1])
       return undefined
     }
-    if (!CALLABLE.test(path) || path === 'servers.onEvent') {
+    if (!CALLABLE.test(path) || BRIDGE_EXCLUDED.has(path)) {
       throw new Error(`"${path}" can't be called over the plugin bridge`)
     }
     const [group, method] = path.split('.') as [
-      'servers' | 'storage' | 'log',
+      'servers' | 'groups' | 'storage' | 'log' | 'software',
       string
     ]
     const api = handle.ctx[group] as unknown as Record<string, (...a: unknown[]) => unknown>

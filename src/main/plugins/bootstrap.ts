@@ -55,6 +55,10 @@ function buildContext(pluginId: string, dir: string, appVersion: string): Plugin
       stop: call('servers.stop') as PluginContext['servers']['stop'],
       restart: call('servers.restart') as PluginContext['servers']['restart'],
       sendCommand: call('servers.sendCommand') as PluginContext['servers']['sendCommand'],
+      create: call('servers.create') as PluginContext['servers']['create'],
+      delete: call('servers.delete') as PluginContext['servers']['delete'],
+      rename: call('servers.rename') as PluginContext['servers']['rename'],
+      move: call('servers.move') as PluginContext['servers']['move'],
       onEvent: (cb) => {
         const subId = nextSubId++
         eventSubs.set(subId, cb)
@@ -64,6 +68,12 @@ function buildContext(pluginId: string, dir: string, appVersion: string): Plugin
           post({ type: 'unsubscribe', subId })
         }
       }
+    },
+    groups: {
+      list: call('groups.list') as PluginContext['groups']['list'],
+      create: call('groups.create') as PluginContext['groups']['create'],
+      rename: call('groups.rename') as PluginContext['groups']['rename'],
+      delete: call('groups.delete') as PluginContext['groups']['delete']
     },
     storage: {
       get: call('storage.get') as PluginContext['storage']['get'],
@@ -97,7 +107,10 @@ function buildContext(pluginId: string, dir: string, appVersion: string): Plugin
       registerProvider: (provider) => {
         providers.set(`software:${provider.id}`, provider as unknown as Record<string, (...args: unknown[]) => unknown>)
         post({ type: 'provider-register', kind: 'software', descriptor: { id: provider.id } })
-      }
+      },
+      listTypes: call('software.listTypes') as PluginContext['software']['listTypes'],
+      listVersions: call('software.listVersions') as PluginContext['software']['listVersions'],
+      listBuilds: call('software.listBuilds') as PluginContext['software']['listBuilds']
     },
     tunnels: {
       registerProvider: () => {
